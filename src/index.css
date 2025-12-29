@@ -1,0 +1,251 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;800&display=swap');
+
+:root {
+  --primary: #2563eb;
+  --primary-gradient: linear-gradient(135deg, #3b82f6, #06b6d4);
+  --text-dark: #0f172a;
+  --text-gray: #64748b;
+  --bg-color: #f8fafc;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+html { scroll-behavior: smooth; }
+
+body { 
+  background-color: var(--bg-color);
+  color: var(--text-dark);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.1) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* ===== NAVBAR (Default Desktop: Top Center) ===== */
+nav {
+  position: fixed; 
+  top: 20px; 
+  left: 50%; 
+  transform: translateX(-50%);
+  background: transparent; 
+  z-index: 1000;
+  transition: all 0.3s ease;
+}
+nav ul { 
+  list-style: none; display: flex; gap: 8px; 
+  background: rgba(255,255,255,0.8); 
+  padding: 8px 12px; 
+  border-radius: 100px; 
+  backdrop-filter: blur(12px); 
+  border: 1px solid rgba(255,255,255,1);
+  box-shadow: 0 10px 30px -10px rgba(0,0,0,0.1);
+}
+
+nav a {
+  text-decoration: none; color: #334155; font-weight: 600; font-size: 0.95rem;
+  padding: 10px 20px; border-radius: 30px; transition: all 0.3s ease;
+  display: flex; align-items: center; gap: 0; cursor: pointer;
+}
+
+nav a:hover { color: var(--primary); background: #f1f5f9; }
+nav a.active { 
+  background: var(--primary); 
+  color: white; 
+  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); 
+}
+
+/* Navbar Icon Animation */
+.nav-icon {
+  font-size: 18px; opacity: 0; max-width: 0; margin-right: 0;
+  transform: translateX(-10px); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: hidden; display: inline-block; white-space: nowrap;
+}
+nav a:hover .nav-icon, nav a.active .nav-icon {
+  opacity: 1; max-width: 25px; margin-right: 8px; transform: translateX(0);
+}
+
+/* ===== HERO SECTION ===== */
+section { min-height: 100vh; padding: 100px 5%; display: flex; flex-direction: column; justify-content: center; position: relative; }
+
+.home { text-align: center; }
+
+.hero-content {
+  position: relative; z-index: 2;
+  animation: fadeUp 0.8s ease-out;
+}
+
+h1 { 
+  font-size: 64px; margin-bottom: 20px; color: #0f172a; font-weight: 800; letter-spacing: -2px; line-height: 1.1;
+}
+.gradient-text {
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+p { font-size: 20px; line-height: 1.6; color: var(--text-gray); max-width: 600px; margin: 0 auto 30px; }
+
+.btn {
+  padding: 16px 36px; background: var(--primary-gradient);
+  color: white; border-radius: 100px; text-decoration: none; font-weight: 700;
+  border: none; cursor: pointer; font-size: 1.1rem; transition: all 0.3s;
+  box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4);
+  display: inline-block;
+}
+.btn:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 20px 35px -10px rgba(6, 182, 212, 0.5); }
+
+/* ===== SERVICES GRID & EXPANDING CARD ===== */
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 40px;
+  width: 100%;
+  max-width: 1300px;
+  margin: 60px auto 0;
+  justify-items: center;
+}
+
+.card-wrapper {
+  position: relative;
+  width: 350px;
+  height: 250px;
+  z-index: 1;
+}
+
+.service-card {
+  position: absolute; left: 0; top: 0; height: 100%; width: 350px;
+  background: #ffffff;
+  border-radius: 24px;
+  box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08);
+  overflow: hidden;
+  display: flex;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1), box-shadow 0.4s ease, transform 0.3s ease;
+  border: 1px solid white;
+}
+
+.service-card.expanded {
+  width: 640px; /* Expands right */
+  box-shadow: 0 30px 80px -20px rgba(37, 99, 235, 0.25);
+  z-index: 100;
+  transform: scale(1.02);
+  border-color: #bfdbfe;
+}
+
+.card-main { width: 350px; flex-shrink: 0; display: flex; flex-direction: column; }
+
+.cover-img {
+  height: 140px;
+  background: #f1f5f9;
+  display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; overflow: hidden; position: relative;
+}
+.cover-img img { width: 100%; height: 100%; object-fit: cover; }
+.no-image-pattern {
+  width: 100%; height: 100%;
+  background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+  background-size: 10px 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px;
+}
+
+.card-content { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; }
+.card-content h3 { font-size: 22px; color: #1e293b; font-weight: 700; margin-bottom: 4px; }
+.card-content p { font-size: 15px; color: #64748b; line-height: 1.4; }
+
+.view-btn {
+  margin-top: auto; padding: 10px; width: 100%;
+  background: #f1f5f9; color: #334155;
+  border: none; border-radius: 12px; font-weight: 600; cursor: pointer;
+  transition: 0.2s;
+}
+.view-btn:hover { background: var(--primary); color: white; }
+
+.card-gallery {
+  width: 290px;
+  background: #f8fafc;
+  padding: 20px;
+  display: flex; gap: 12px;
+  align-items: center; justify-content: center;
+  opacity: 0; transform: translateX(-20px);
+  transition: 0.4s ease 0.1s; /* Slight delay */
+  border-left: 1px solid #e2e8f0;
+}
+.service-card.expanded .card-gallery { opacity: 1; transform: translateX(0); }
+.card-gallery img {
+  width: 75px; height: 75px;
+  border-radius: 14px; background: white; object-fit: cover;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+/* Search Bar */
+.search-container { max-width: 500px; margin: 0 auto; width: 100%; position: relative; }
+.search-input {
+  width: 100%; padding: 18px 28px; border-radius: 100px;
+  background: white; border: 2px solid transparent;
+  box-shadow: 0 10px 40px -10px rgba(37, 99, 235, 0.15);
+  font-size: 1.1rem; outline: none; transition: 0.3s;
+}
+.search-input:focus { border-color: var(--primary); box-shadow: 0 10px 40px -10px rgba(37, 99, 235, 0.25); }
+
+/* Animation Keyframes */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Profile Menu */
+.profile-container { position: fixed; top: 20px; right: 20px; z-index: 1100; }
+.profile-btn {
+  width: 45px; height: 45px; border-radius: 50%;
+  background: white; border: 2px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  display: flex; justify-content: center; align-items: center;
+  font-weight: bold; color: var(--primary); font-size: 1.2rem; cursor: pointer; transition: 0.3s;
+}
+.profile-dropdown {
+  position: absolute; top: 55px; right: 0;
+  background: white; width: 180px; border-radius: 12px; 
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 10px; border: 1px solid #e2e8f0;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.dropdown-item {
+  padding: 10px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; 
+  color: #475569; text-align: left; background: none; border: none; width: 100%;
+}
+.dropdown-item:hover { background: #f1f5f9; color: var(--primary); }
+
+/* =======================================
+   MOBILE FIXES (Bottom Nav)
+   ======================================= */
+@media(max-width: 768px) {
+  h1 { font-size: 42px; }
+  
+  /* FORCE NAV TO BOTTOM */
+  nav { 
+    top: auto;        /* Unset top */
+    bottom: 20px;     /* Set bottom */
+    width: 90%;       /* Make it fit nicely */
+    transform: translateX(-50%);
+  }
+  
+  nav ul { 
+    justify-content: space-between; 
+    padding: 12px 20px; 
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  }
+
+  /* Show icons only on mobile */
+  nav a { padding: 10px; border-radius: 50%; }
+  nav a .nav-icon { opacity: 1; max-width: 100%; margin-right: 0; transform: none; font-size: 20px; }
+  nav a span:not(.nav-icon) { display: none; }
+
+  /* Adjust grid and cards */
+  .service-grid { grid-template-columns: 1fr; padding: 0 20px; }
+  .card-wrapper { width: 100%; max-width: 350px; height: auto; margin-bottom: 20px; }
+  .service-card { position: relative; width: 100%; flex-direction: column; }
+  .service-card.expanded { width: 100%; transform: none; }
+  .card-gallery { display: none; }
+}
+
+/* =========================================
+   PROVIDER DASHBOARD (Dark Green Theme)
+   ========================================= */
+.provider-body { background: #022c22; color: #ecfdf5; }
+/* ... (Keep your existing dashboard styles if needed) ... */
+
