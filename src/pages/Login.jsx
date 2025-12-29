@@ -27,42 +27,96 @@ export default function Login() {
     setLoading(true)
 
     if (isSignUp) {
-      // Sign Up
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      // 1. SIGN UP
+      // We assume Email Verification is ON.
+      // We save full_name and role inside "options.data" so Supabase remembers them
+      // even if the user hasn't verified their email yet.
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            role: role,
+          },
+        },
+      })
+
       if (error) {
         alert(error.message)
+      } else if (data.user && !data.session) {
+        // CASE A: Success, but Email Verification is pending
+        alert('Registration successful! Please check your email to verify your account.')
+        setIsSignUp(false) // Send them back to login screen
       } else {
-        const { error: profileError } = await supabase.from('profiles')
-          .insert([{ id: data.user.id, full_name: fullName, role: role, email: email }])
-        
-        if (profileError) alert("Error creating profile: " + profileError.message)
-        else {
-          alert('Signup successful! Please log in.')
-          setIsSignUp(false)
-        }
+        // CASE B: Email Auth is OFF (Auto-login), so we create profile immediately
+        await createProfile(data.user)
       }
+
     } else {
-      // Login
+      // 2. LOGIN
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      
       if (error) {
         alert(error.message)
       } else {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
-        if (profile?.role === 'provider') navigate('/provider-dashboard')
-        else navigate('/customer-home')
+        // User logged in successfully!
+        // Check if they have a profile row in the database
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .single()
+
+        // IF NO PROFILE EXISTS (This happens the first time they login after verifying email)
+        // We create it now using the data we saved during signup
+        if (!profile) {
+          await createProfile(data.user)
+        } else {
+          // Profile exists, just navigate
+          redirectUser(profile.role)
+        }
       }
     }
     setLoading(false)
   }
 
-  // GREEN BACKGROUND CONTAINER
+  // Helper function to create the profile row
+  const createProfile = async (user) => {
+    // We get the name/role from the "user_metadata" we saved earlier
+    const meta = user.user_metadata
+    
+    const { error } = await supabase.from('profiles').insert([
+      { 
+        id: user.id, 
+        email: user.email,
+        full_name: meta.full_name || fullName, 
+        role: meta.role || role
+      }
+    ])
+
+    if (error) {
+      alert("Error creating profile: " + error.message)
+    } else {
+      // Success! Navigate
+      redirectUser(meta.role || role)
+    }
+  }
+
+  // Helper function to navigate
+  const redirectUser = (userRole) => {
+    if (userRole === 'provider') navigate('/provider-dashboard')
+    else navigate('/customer-home')
+  }
+
+  // --- UI RENDER (Same as before) ---
   return (
     <div style={{ 
       minHeight: '100vh', 
       display: 'flex', 
       justifyContent: 'center', 
       alignItems: 'center', 
-      backgroundColor: '#dcfce7', /* LIGHT GREEN COLOR */
+      backgroundColor: '#dcfce7',
       backgroundImage: 'radial-gradient(#86efac 1px, transparent 1px)', 
       backgroundSize: '20px 20px'
     }}>
