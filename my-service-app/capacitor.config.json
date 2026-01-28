@@ -1,0 +1,10 @@
+{
+  "appId": "com.myserviceapp.app",
+  "appName": "khenayaaS",
+  "webDir": "dist",
+  "plugins": {
+    "App": {
+      "urlScheme": "com.myserviceapp.app"
+    }
+  }
+}
