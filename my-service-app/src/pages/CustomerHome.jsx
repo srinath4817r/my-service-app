@@ -4,33 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Geolocation } from '@capacitor/geolocation'
 
 // =====================
-// 0. STRICT LOCATION LIST (HYDERABAD LIMITS)
-// =====================
-const ALLOWED_AREAS = [
-  "Ameerpet", "Attapur", "Amberpet", "Abids", "Alwal", "Adibatla",
-  "Banjara Hills", "Begumpet", "Bowenpally", "Bachupally", "Balanagar", "Bandlaguda",
-  "Chandanagar", "Chanda Nagar", "Charminar", "Cyber Towers",
-  "Dilsukhnagar", "Domalguda",
-  "Ecil", "Erragadda",
-  "Financial District", "Film Nagar",
-  "Gachibowli", "Gandipet", "Ghatkesar", "Gudimalkapur",
-  "Hitech City", "Hafeezpet", "Himayatnagar", "Habsiguda", "Hayathnagar",
-  "Jubilee Hills", "Jeedimetla",
-  "Kondapur", "Kukatpally", "Kothaguda", "Koti", "Khairatabad", "Kompally", "Kachiguda",
-  "Lingampally", "L.B. Nagar", "Lakdikapul",
-  "Madhapur", "Miyapur", "Manikonda", "Mehdipatnam", "Malkajgiri", "Moosapet", "Malakpet",
-  "Nanakramguda", "Nizampet", "Nagole", "Nampally", "Narayanguda",
-  "Old City", "Osman Nagar",
-  "Pragathi Nagar", "Patancheru", "Punjagutta",
-  "Raidurg", "Ramanthapur", "Ramnagar",
-  "Secunderabad", "Sanath Nagar", "Shaikpet", "Shamshabad", "Suchitra", "Sainikpuri", "Somajiguda",
-  "Tolichowki", "Tarnaka", "Trimulgherry",
-  "Uppal", "Vanasthalipuram",
-  "Warangal", "West Marredpally", "Yousufguda"
-];
-
-// =====================
-// FIX HELPERS
+// HELPERS
 // =====================
 const createAddrId = () => crypto.randomUUID()
 
@@ -61,7 +35,26 @@ const ANIMATED_PROFILE_ICONS = [
   { name: 'Settings', path: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></> }
 ];
 
-// --- 1. Service Card Component (Updated Buttons) ---
+// --- NEW: QUICK ACTIONS ANIMATED EMOJIS ---
+const ANIMATED_QUICK_ICONS = {
+  Instant: [
+    { emoji: '🚀', ani: 'ani-rocket' },
+    { emoji: '🔴', ani: 'ani-warning' },
+    { emoji: '⏳', ani: 'ani-hourglass' }
+  ],
+  Local: [
+    { emoji: '🏃', ani: 'ani-run' },
+    { emoji: '📍', ani: 'ani-location' },
+    { emoji: '🤝', ani: 'ani-handshake' }
+  ],
+  Premium: [
+    { emoji: '👑', ani: 'ani-star' },
+    { emoji: '🎉', ani: 'ani-party' },
+    { emoji: '📡', ani: 'ani-satellite' }
+  ]
+};
+
+// --- 1. Service Card Component ---
 const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUser }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const timerRef = useRef(null)
@@ -124,7 +117,6 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
               <p>{service.description ? service.description.substring(0, 50) + '...' : 'No description available'}</p>
             </div>
             
-            {/* 🔥 UPDATED BUTTONS TO 3D STYLE */}
             {isOwner ? (
                 <button className="view-btn" style={{background:'#eff6ff', color:'#2563eb', border:'1px solid #dbeafe', boxShadow:'0 4px 0 #bfdbfe'}} onClick={(e) => { e.stopPropagation(); navigate(service.service_type === 'Instant' ? '/instant-provider-dashboard' : '/local-provider-dashboard'); }}>Manage Hub</button>
             ) : isOffline ? (
@@ -186,6 +178,10 @@ export default function CustomerHome() {
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
 
+  // --- 🔥 NEW STATE FOR SWIGGY HEADER ---
+  const [displayLocation, setDisplayLocation] = useState("Tap to detect location");
+  const [isLocating, setIsLocating] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '', mobile: '', datetime: '', building: '', room: '', landmark: '', locationLat: null, locationLng: null
   })
@@ -243,6 +239,9 @@ export default function CustomerHome() {
     fetchServices()
     checkUser()
     requestNotificationPermission()
+
+    // 🔥 TRIGGER AUTO LOCATION ON APP OPEN
+    handleAutoLocation();
 
     const dataChannel = supabase
       .channel('dashboard-realtime-v2')
@@ -422,39 +421,66 @@ export default function CustomerHome() {
   };
 
   // =======================================================
-  // 🔥 VALIDATE LOCATION FUNCTION (Reverse Geocoding)
+  // 🔥 FETCH ADDRESS FUNCTION (Updated Logic)
   // =======================================================
   const checkAreaValidity = async (lat, lng) => {
     try {
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
       const data = await response.json();
       
-      if (!data || !data.address) return { isValid: false, detected: "Unknown" };
+      if (!data || !data.address) return { isValid: false, detectedName: "Unknown Area" };
 
       const address = data.address;
-      const detectedAreas = [
-        address.suburb, 
-        address.neighbourhood, 
-        address.residential, 
-        address.village, 
-        address.city_district,
-        address.town,
-        address.city
-      ].filter(Boolean).map(s => s.toLowerCase());
+      
+      // 🔥 GET DETAILED: AREA + STATE (e.g., "Kajaguda, Telangana")
+      const localArea = address.suburb || address.neighbourhood || address.village || address.residential || address.town || address.road || "Unknown Area";
+      const cityOrState = address.city || address.state_district || address.state || "";
+      
+      const formattedLocation = cityOrState ? `${localArea}, ${cityOrState}` : localArea;
 
-      const matchedArea = ALLOWED_AREAS.find(allowed => 
-        detectedAreas.some(detected => detected.includes(allowed.toLowerCase()))
-      );
-
-      if (matchedArea) {
-        return { isValid: true, matchedArea: matchedArea };
-      } else {
-        return { isValid: false, detected: detectedAreas[0] || "Outside Limits" };
-      }
+      // ALWAYS VALID - NO RESTRICTIONS
+      return { 
+          isValid: true, 
+          matchedArea: localArea, 
+          detectedName: formattedLocation 
+      };
 
     } catch (error) {
       console.error("Geocoding error", error);
-      return { isValid: false, detected: "Error" };
+      return { isValid: false, detectedName: "Location Error" };
+    }
+  }
+
+  // =======================================================
+  // 🔥 SWIGGY STYLE AUTO LOCATION HEADER LOGIC
+  // =======================================================
+  const handleAutoLocation = async () => {
+    setIsLocating(true);
+    
+    const processPosition = async (lat, lng) => {
+       const check = await checkAreaValidity(lat, lng);
+       
+       setDisplayLocation(check.detectedName);
+       
+       if (check.isValid) {
+         setFormData(prev => ({ ...prev, locationLat: lat, locationLng: lng, landmark: check.matchedArea }));
+       }
+       setIsLocating(false);
+    };
+
+    try {
+      const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+      await processPosition(position.coords.latitude, position.coords.longitude);
+    } catch (e) {
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => processPosition(pos.coords.latitude, pos.coords.longitude),
+          () => { setDisplayLocation("Tap to detect location"); setIsLocating(false); }
+        );
+      } else {
+        setDisplayLocation("GPS Not Supported");
+        setIsLocating(false);
+      }
     }
   }
 
@@ -462,23 +488,18 @@ export default function CustomerHome() {
   // 🔥 HANDLE GET LOCATION (Booking Form)
   // =======================================================
   const handleGetLocation = async () => {
-    sendNotification("📡 Checking service availability...", "info");
+    sendNotification("📡 Detecting location...", "info");
     
     const processPosition = async (lat, lng) => {
        const check = await checkAreaValidity(lat, lng);
        
-       if (check.isValid) {
-         setFormData(prev => ({ 
-           ...prev, 
-           locationLat: lat, 
-           locationLng: lng,
-           landmark: `${check.matchedArea} (GPS Detected)`
-         }));
-         sendNotification(`✅ Service Available in ${check.matchedArea}!`, "success");
-       } else {
-         setFormData(prev => ({ ...prev, locationLat: null, locationLng: null }));
-         sendNotification(`🚫 Sorry! Location is outside city limits. We only serve specific Hyderabad areas.`, "error");
-       }
+       setFormData(prev => ({ 
+         ...prev, 
+         locationLat: lat, 
+         locationLng: lng, 
+         landmark: `${check.detectedName} (GPS)`
+       }));
+       sendNotification(`✅ Location found: ${check.matchedArea}`, "success");
     };
 
     try {
@@ -497,23 +518,18 @@ export default function CustomerHome() {
   }
 
   const handleGetLocationForNewAddr = async () => {
-    sendNotification("📡 Verifying address location...", "info");
+    sendNotification("📡 Verifying location...", "info");
 
     const processPosition = async (lat, lng) => {
        const check = await checkAreaValidity(lat, lng);
 
-       if (check.isValid) {
-         setNewAddrData(prev => ({ 
-            ...prev, 
-            lat: lat, 
-            lng: lng,
-            landmark: `${check.matchedArea} (Verified)`
-         }));
-         sendNotification(`✅ Location Verified: ${check.matchedArea}`, "success");
-       } else {
-         setNewAddrData(prev => ({ ...prev, lat: null, lng: null }));
-         sendNotification(`🚫 Cannot save: Location outside city limits.`, "error");
-       }
+       setNewAddrData(prev => ({ 
+          ...prev, 
+          lat: lat, 
+          lng: lng, 
+          landmark: `${check.detectedName}`
+       }));
+       sendNotification(`✅ Location Verified: ${check.matchedArea}`, "success");
     };
 
     try {
@@ -803,6 +819,73 @@ export default function CustomerHome() {
 
         body { background-color: var(--bg-body); color: var(--text-main); transition: background-color 0.3s, color 0.3s; }
         .app-container { min-height: 100vh; background-color: var(--bg-body); }
+        
+        /* 🔥 SWIGGY HEADER STYLES 🔥 */
+        .swiggy-header {
+            position: sticky;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: var(--bg-card);
+            padding: 12px 16px;
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+            transition: all 0.3s ease;
+        }
+        .loc-icon-box {
+            font-size: 24px;
+            color: #e11d48; /* Swiggy-ish Red/Pink */
+            animation: bounce 2s infinite;
+        }
+        .loc-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+        }
+        .loc-label {
+            font-size: 10px;
+            font-weight: 800;
+            color: #e11d48;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .loc-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .arrow-down {
+            font-size: 10px;
+            color: var(--text-sub);
+            transition: transform 0.2s;
+        }
+        .loc-info:active .arrow-down {
+            transform: rotate(180deg);
+        }
+        .profile-icon-header {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid #e2e8f0;
+            background: #f1f5f9;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
 
         /* 🔥 GLOBAL 3D BUTTON STYLES 🔥 */
         button, .btn, .view-btn, .action-btn, .location-btn {
@@ -991,19 +1074,19 @@ export default function CustomerHome() {
         }
 
         /* 🏃 Runner: Sprinting Animation */
-.ani-run { 
-    animation: sprint 0.6s infinite alternate ease-in-out; 
-    display: inline-block; 
-}
+        .ani-run { 
+            animation: sprint 0.6s infinite alternate ease-in-out; 
+            display: inline-block; 
+        }
 
-@keyframes sprint {
-    from { 
-        transform: translateY(0) skewX(0deg); 
-    }
-    to { 
-        transform: translateY(-3px) skewX(-15deg); /* Hop up & Lean forward (Speed) */
-    }
-}
+        @keyframes sprint {
+            from { 
+                transform: translateY(0) skewX(0deg); 
+            }
+            to { 
+                transform: translateY(-3px) skewX(-15deg); /* Hop up & Lean forward (Speed) */
+            }
+        }
 
         /* 📡 Satellite: Transmitting Waves */
         .ani-satellite { animation: float 3s ease-in-out infinite; display: inline-block; }
@@ -1130,47 +1213,47 @@ export default function CustomerHome() {
             0% { transform: scale(1); opacity: 0.5; filter: grayscale(100%); }
             100% { transform: scale(1.3) rotate(10deg); opacity: 1; filter: drop-shadow(0 0 10px gold); }
         }
-            /* 🤝 Handshake: Firm Shake Animation */
-.ani-handshake { 
-    animation: firmShake 2s ease-in-out infinite; 
-    display: inline-block; 
-}
-@keyframes firmShake {
-    0% { transform: translateY(0) rotate(0); }
-    10% { transform: translateY(2px) rotate(-5deg); } /* Down & tilt */
-    20% { transform: translateY(-2px) rotate(5deg); }  /* Up & tilt */
-    30% { transform: translateY(2px) rotate(-5deg); } 
-    40% { transform: translateY(-2px) rotate(5deg); } 
-    50% { transform: translateY(0) rotate(0); }        /* Stop shaking */
-    100% { transform: translateY(0) rotate(0); }       /* Rest */
-}
-
+        
+        /* 🤝 Handshake: Firm Shake Animation */
+        .ani-handshake { 
+            animation: firmShake 2s ease-in-out infinite; 
+            display: inline-block; 
+        }
+        @keyframes firmShake {
+            0% { transform: translateY(0) rotate(0); }
+            10% { transform: translateY(2px) rotate(-5deg); } /* Down & tilt */
+            20% { transform: translateY(-2px) rotate(5deg); }  /* Up & tilt */
+            30% { transform: translateY(2px) rotate(-5deg); } 
+            40% { transform: translateY(-2px) rotate(5deg); } 
+            50% { transform: translateY(0) rotate(0); }        /* Stop shaking */
+            100% { transform: translateY(0) rotate(0); }       /* Rest */
+        }
 
         /* ✏️ Pencil: Writing Motion */
-.ani-edit { 
-    animation: writing 1.5s ease-in-out infinite; 
-    display: inline-block; 
-}
-@keyframes writing {
-    0% { transform: rotate(0deg) translate(0,0); }
-    25% { transform: rotate(15deg) translate(2px, -2px); } /* Tilt right & up */
-    50% { transform: rotate(0deg) translate(0,0); }
-    75% { transform: rotate(-10deg) translate(-2px, 2px); } /* Tilt left & down */
-    100% { transform: rotate(0deg) translate(0,0); }
-}
+        .ani-edit { 
+            animation: writing 1.5s ease-in-out infinite; 
+            display: inline-block; 
+        }
+        @keyframes writing {
+            0% { transform: rotate(0deg) translate(0,0); }
+            25% { transform: rotate(15deg) translate(2px, -2px); } /* Tilt right & up */
+            50% { transform: rotate(0deg) translate(0,0); }
+            75% { transform: rotate(-10deg) translate(-2px, 2px); } /* Tilt left & down */
+            100% { transform: rotate(0deg) translate(0,0); }
+        }
 
-/* 🚪 Door: "Guy Going Out" (Slide Exit Motion) */
-.ani-door { 
-    animation: doorExit 2s ease-in-out infinite; 
-    display: inline-block; 
-}
-@keyframes doorExit {
-    0% { transform: translateX(0) scale(1); opacity: 1; }
-    30% { transform: translateX(-3px) scale(0.95); } /* Pull back slightly */
-    60% { transform: translateX(10px) scale(1.1); opacity: 0; } /* Run out to the right */
-    61% { transform: translateX(-10px) scale(0.8); opacity: 0; } /* Reset position invisible */
-    100% { transform: translateX(0) scale(1); opacity: 1; } /* Reappear */
-}
+        /* 🚪 Door: "Guy Going Out" (Slide Exit Motion) */
+        .ani-door { 
+            animation: doorExit 2s ease-in-out infinite; 
+            display: inline-block; 
+        }
+        @keyframes doorExit {
+            0% { transform: translateX(0) scale(1); opacity: 1; }
+            30% { transform: translateX(-3px) scale(0.95); } /* Pull back slightly */
+            60% { transform: translateX(10px) scale(1.1); opacity: 0; } /* Run out to the right */
+            61% { transform: translateX(-10px) scale(0.8); opacity: 0; } /* Reset position invisible */
+            100% { transform: translateX(0) scale(1); opacity: 1; } /* Reappear */
+        }
 
         /* ⬅️ Arrow: Pointing Left */
         .ani-arrow { animation: pointLeft 1s infinite; display: inline-block; }
@@ -1179,9 +1262,8 @@ export default function CustomerHome() {
             50% { transform: translateX(-10px); }
             100% { transform: translateX(0); }
         }
-
       `}</style>
-        
+      
       {toast.show && (
         <div className={`toast-notification toast-${toast.type}`}>
           {toast.type === 'success' && '✅'} {toast.type === 'error' && <span className="ani-cross">❌</span>} {toast.type === 'info' && 'ℹ️'} {toast.message}
@@ -1191,6 +1273,36 @@ export default function CustomerHome() {
       {isMobile ? (
         <div className="mobile-layout-container" style={{position:'fixed', top:0, left:0, width:'100%', height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'var(--bg-body)'}}>
             
+            {/* 🔥🔥🔥 SWIGGY HEADER ADDED HERE (STICKY TOP) 🔥🔥🔥 */}
+            <div className="swiggy-header">
+                <div className="loc-icon-box">
+                    {/* SVG Icon Replacement */}
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color:'#e11d48'}}>
+                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                      <circle cx="12" cy="10" r="3"></circle>
+                    </svg>
+                </div>
+                {/* Clicking this area triggers the location refresh/permission request */}
+                <div className="loc-info" onClick={handleAutoLocation}>
+                    <span className="loc-label">Current Location</span>
+                    <div className="loc-value">
+                        {isLocating ? "Detecting..." : displayLocation} 
+                        <span className="arrow-down">▼</span>
+                    </div>
+                    {/* Prompt for user action if location is not detected yet or user wants to retry */}
+                    {!isLocating && displayLocation === "Tap to detect location" && (
+                        <span style={{fontSize:'10px', color:'var(--text-sub)'}}>Click here to update</span>
+                    )}
+                </div>
+                <div className="profile-icon-header" onClick={() => setActiveTab('profile')}>
+                     {googleUser.avatar ? (
+                        <img src={googleUser.avatar} style={{width:'100%', height:'100%', objectFit:'cover'}} alt="P" />
+                     ) : (
+                        <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#3b82f6', fontWeight:'bold'}}>{userInitial}</div>
+                     )}
+                </div>
+            </div>
+
             <div id="mobile-scroll-view" style={{flex:1, overflowY:'auto', paddingBottom:'90px', WebkitOverflowScrolling:'touch'}}>
               
               {activeTab === 'home' && (
@@ -1202,27 +1314,38 @@ export default function CustomerHome() {
 
                   <div className="quick-actions-container">
                     <div className="quick-card" onClick={() => { setSearchTerm('Instant'); }}>
-                      <div className="quick-icon-circle instant-bg"><span className="ani-rocket">🚀</span></div>
+                      <div className="quick-icon-circle instant-bg">
+                        <span className={`emoji ${ANIMATED_QUICK_ICONS.Instant[animIndex % 3].ani}`}>
+                            {ANIMATED_QUICK_ICONS.Instant[animIndex % 3].emoji}
+                        </span>
+                      </div>
                       <span>Instant Service</span>
                       <small>Home Delivery</small>
                     </div>
 
                     <div className="quick-card" onClick={() => { setSearchTerm('Local'); }}>
-                      <div className="quick-icon-circle local-bg"><span className="ani-party">🏃</span></div>
+                      <div className="quick-icon-circle local-bg">
+                        <span className={`emoji ${ANIMATED_QUICK_ICONS.Local[animIndex % 3].ani}`}>
+                            {ANIMATED_QUICK_ICONS.Local[animIndex % 3].emoji}
+                        </span>
+                      </div>
                       <span>Local Boys</span>
                       <small>Fast Support</small>
                     </div>
 
-                    <div className="quick-card" onClick={handleGetLocation}>
-                      <div className="quick-icon-circle" style={{background:'#eff6ff', color:'#2563eb'}}><span className="ani-location">📍</span></div>
-                      <span>Near Me</span>
-                      <small>Using GPS</small>
+                    <div className="quick-card" onClick={() => setSearchTerm('Premium')}>
+                      <div className="quick-icon-circle" style={{background:'#fffbeb', color:'#f59e0b'}}>
+                        <span className={`emoji ${ANIMATED_QUICK_ICONS.Premium[animIndex % 3].ani}`}>
+                            {ANIMATED_QUICK_ICONS.Premium[animIndex % 3].emoji}
+                        </span>
+                      </div>
+                      <span>Premium</span>
+                      <small>Elite Pros</small>
                     </div>
                   </div>
 
                   <div className="search-container" style={{padding:'0 20px'}}><input type="text" className="search-input" placeholder="Search services..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                   
-                  {/* --- FIXED: NO SERVICES PLACEHOLDER --- */}
                   <div className="service-grid">
                       {filteredServices.length > 0 ? (
                           filteredServices.map(service => (
@@ -1254,7 +1377,6 @@ export default function CustomerHome() {
                 <div className="page-enter" style={{padding:'20px'}}>
                     <h2 style={{fontSize:'24px', marginBottom:'20px', fontWeight:'800', color:'var(--text-main)'}}>Profile</h2>
                     
-                    {/* MOBILE PROFILE UI */}
                     <div style={{display:'flex', alignItems:'center', gap:'15px', marginBottom:'30px', padding:'20px', background:'var(--bg-card)', borderRadius:'15px', boxShadow:'0 4px 15px rgba(0,0,0,0.03)'}}>
                       <div style={{width:'65px', height:'65px', borderRadius:'50%', border:'3px solid #3b82f6', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center'}}>
                         {googleUser.avatar ? (
@@ -1275,7 +1397,6 @@ export default function CustomerHome() {
                       </button>
                       <button onClick={() => navigate('/join-selection')} style={{padding:'16px', borderRadius:'12px', border:'none', background:'var(--bg-card)', textAlign:'left', fontWeight:'600', display:'flex', justifyContent:'space-between', cursor:'pointer', boxShadow:'0 2px 8px rgba(0,0,0,0.02)', color:'var(--text-main)'}}>
                           <span>
-                            {/* --- HANDSHAKE ANIMATION REPLACED --- */}
                             <span className="ani-handshake">🤝</span> Join as Professional
                           </span> <span>→</span>
                       </button> 
@@ -1410,7 +1531,6 @@ export default function CustomerHome() {
                         </div>
                     ) : (
                         <a href="#provider" onClick={() => navigate('/join-selection')}>
-                            {/* --- HANDSHAKE ANIMATION REPLACED --- */}
                             <span className="ani-handshake">🤝</span> Join
                         </a>
                     )}
@@ -1432,7 +1552,6 @@ export default function CustomerHome() {
                 <div className="search-container"><input type="text" className="search-input" placeholder="Search services..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                 </div>
                 
-                {/* --- FIXED: DESKTOP & MOBILE SHARED LOGIC --- */}
                 <div className="service-grid">
                     {filteredServices.length > 0 ? (
                       filteredServices.map(service => (
@@ -1504,7 +1623,6 @@ export default function CustomerHome() {
           <div className="modal-content" style={{maxWidth:'500px'}}>
             <h3 style={{marginTop:0, marginBottom:'20px'}}>Complete Booking Details</h3>
             
-            {/* --- ADDRESS DROPDOWN (FIXED: No parseInt, No Crash) --- */}
             {savedAddresses.length > 0 && (
               <div style={{ marginBottom: '20px', background: '#f0fdf4', padding: '10px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
@@ -1515,7 +1633,7 @@ export default function CustomerHome() {
                   className="form-input" 
                   style={{marginBottom:0, cursor:'pointer', marginTop:'5px', border:'1px solid #86efac'}}
                   onChange={(e) => {
-                    const addr = savedAddresses.find(a => a.id === e.target.value); // ✅ String Comparison
+                    const addr = savedAddresses.find(a => a.id === e.target.value); 
                     if (addr) {
                       setFormData(prev => ({ ...prev, building: addr.building, room: addr.room, landmark: addr.landmark, locationLat: addr.lat, locationLng: addr.lng }));
                       sendNotification("Address autofilled!", "success");
@@ -1544,11 +1662,7 @@ export default function CustomerHome() {
                 <input type="text" className="form-input" placeholder="Building/House No" required value={formData.building} onChange={e => setFormData({...formData, building: e.target.value})} />
                 <input type="text" className="form-input" placeholder="Flat/Room No" required value={formData.room} onChange={e => setFormData({...formData, room: e.target.value})} />
                 
-                {/* NEW: DATALIST FOR LANDMARK SUGGESTION */}
-                <input type="text" className="form-input" placeholder="Landmark / Area" list="area-suggestions" required value={formData.landmark} onChange={e => setFormData({...formData, landmark: e.target.value})} />
-                <datalist id="area-suggestions">
-                    {ALLOWED_AREAS.map(a => <option key={a} value={a} />)}
-                </datalist>
+                <input type="text" className="form-input" placeholder="Landmark / Area" required value={formData.landmark} onChange={e => setFormData({...formData, landmark: e.target.value})} />
                 
                 <button type="button" className={`location-btn ${formData.locationLat ? 'detected' : ''}`} onClick={handleGetLocation}>
                     {formData.locationLat ? "✅ Location Captured" : "📍 Detect Location (GPS)"}
@@ -1572,7 +1686,6 @@ export default function CustomerHome() {
         <div className="modal-overlay">
           <div className="modal-content" style={{position:'relative', overflowY:'auto', maxHeight:'90vh'}}>
             {isAddingAddress ? (
-                // --- ADD NEW ADDRESS VIEW ---
                 <div>
                     <h3 style={{marginTop:0, display:'flex', alignItems:'center', gap:'10px'}}>
                         <span onClick={() => setIsAddingAddress(false)} style={{cursor:'pointer', color:'var(--text-main)'}}><span className="ani-arrow">⬅️</span></span> Add New Address
@@ -1585,10 +1698,7 @@ export default function CustomerHome() {
                     <input type="text" className="form-input" value={newAddrData.room} onChange={e => setNewAddrData({...newAddrData, room: e.target.value})} placeholder="e.g. 101" />
                     
                     <label className="form-label">Landmark</label>
-                    <input type="text" className="form-input" value={newAddrData.landmark} list="area-suggestions-new" onChange={e => setNewAddrData({...newAddrData, landmark: e.target.value})} placeholder="e.g. Near Park" />
-                    <datalist id="area-suggestions-new">
-                        {ALLOWED_AREAS.map(a => <option key={a} value={a} />)}
-                    </datalist>
+                    <input type="text" className="form-input" value={newAddrData.landmark} onChange={e => setNewAddrData({...newAddrData, landmark: e.target.value})} placeholder="e.g. Near Park" />
                     
                     <button type="button" className={`location-btn ${newAddrData.lat ? 'detected' : ''}`} onClick={handleGetLocationForNewAddr}>
                         {newAddrData.lat ? "✅ Location Captured" : "📍 Detect Location (Required)"}
@@ -1600,8 +1710,6 @@ export default function CustomerHome() {
                     </div>
                 </div>
             ) : (
-                // --- MAIN PROFILE VIEW ---
-                // ✅ SAFE: update() WITHOUT .select() - Prevents 406 Error
                 <form onSubmit={async (e) => { e.preventDefault(); if(!currentUser) return; await supabase.from('profiles').update({ full_name: editName, updated_at: new Date() }).eq('id', currentUser.id); setIsEditingProfile(false); sendNotification("Updated!", "success"); }}>
                     <h2 style={{marginBottom:'20px'}}>Profile & Address</h2>
                     
