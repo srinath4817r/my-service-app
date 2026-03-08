@@ -35,7 +35,6 @@ const ANIMATED_PROFILE_ICONS = [
   { name: 'Settings', path: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></> }
 ];
 
-// --- NEW: QUICK ACTIONS ANIMATED EMOJIS ---
 const ANIMATED_QUICK_ICONS = {
   Instant: [
     { emoji: '🚀', ani: 'ani-rocket' },
@@ -54,44 +53,82 @@ const ANIMATED_QUICK_ICONS = {
   ]
 };
 
+const QUICK_REVIEW_WORDS = [
+    "Excellent service 🌟", 
+    "On time ⏰", 
+    "Very professional 💼", 
+    "Highly recommended 👍", 
+    "Polite behavior 🤝", 
+    "Great value 💰"
+];
+
 // --- 1. Service Card Component ---
 const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUser }) => {
   const [isExpanded, setIsExpanded] = useState(false)
-  const timerRef = useRef(null)
+  const clickTimer = useRef(null)
   const navigate = useNavigate()
-
-  const handleMouseEnter = () => { 
-    if (window.innerWidth > 768) { 
-        timerRef.current = setTimeout(() => setIsExpanded(true), 50) 
-    } 
-  }
-  
-  const handleMouseLeave = () => { 
-    if (timerRef.current) clearTimeout(timerRef.current); 
-    setIsExpanded(false) 
-  }
-  
-  const handleMobileClick = () => { if (window.innerWidth <= 768) setIsExpanded(!isExpanded) }
 
   const coverImage = service.service_images?.[0]?.image_url
   const galleryImages = service.service_images?.slice(1, 4) || []
+
+  // 🔥 ONLY expand if there are actual gallery images to show!
+  const handleMouseEnter = () => { 
+    if (window.innerWidth > 768 && galleryImages.length > 0) setIsExpanded(true);
+  }
+  
+  const handleMouseLeave = () => { 
+    setIsExpanded(false);
+  }
+  
+  const handleMobileClick = () => { 
+      if (window.innerWidth <= 768 && galleryImages.length > 0) setIsExpanded(!isExpanded);
+  }
+
+  // Double Click / Single Click Handler Logic
+  const handleMediaClick = (e, imgUrl) => {
+    e.stopPropagation();
+    if (clickTimer.current) {
+        clearTimeout(clickTimer.current);
+        clickTimer.current = null;
+        onImageClick(imgUrl); // Double-click -> Zoom
+    } else {
+        clickTimer.current = setTimeout(() => {
+            clickTimer.current = null;
+            onClick(service.id); // Single-click -> Open Service Details
+        }, 250); 
+    }
+  }
     
   const ratings = service.bookings?.filter(b => b.rating) || [];
   const avg = ratings.length > 0 ? (ratings.reduce((a,b)=>a+b.rating,0)/ratings.length).toFixed(1) : null;
 
+  const isClosedManually = service.is_available === false;
   const isInstantOrLocal = service.service_type === 'Instant' || service.service_type === 'Local';
   const isOffline = isInstantOrLocal && !service.is_live;
 
   const isBusy = service.bookings?.some(b => b.status === 'accepted' || b.status === 'in_progress');
   const isOwner = currentUser && service.provider_id === currentUser.id;
 
+  const displayReason = service.close_reason && service.close_reason.length > 30 
+      ? service.close_reason.substring(0, 30) + '...' 
+      : service.close_reason;
+
   return (
-    <div className="card-wrapper" style={{ zIndex: isExpanded ? 50 : 1, opacity: (isOffline || isBusy) ? 0.8 : 1 }}>
-      <div className={`service-card ${isExpanded ? 'expanded' : ''}`} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onClick={handleMobileClick}>
+    <div className="card-wrapper" style={{ opacity: (isOffline || isBusy || isClosedManually) ? 0.8 : 1 }}>
+      <div className={`service-card ${isExpanded ? 'expanded' : ''} ${galleryImages.length > 0 ? 'has-gallery' : ''}`} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onClick={handleMobileClick}>
         <div className="card-main">
           <div className="cover-img">
             {coverImage ? (
-              <img src={coverImage} alt="Cover" style={{ filter: (isOffline || isBusy) ? 'grayscale(100%)' : 'none' }} onError={(e) => e.target.style.display='none'} onClick={(e) => { e.stopPropagation(); onImageClick(coverImage); }} />
+              <>
+                <img 
+                    src={coverImage} 
+                    alt="Cover" 
+                    style={{ filter: (isOffline || isBusy || isClosedManually) ? 'grayscale(100%)' : 'none' }} 
+                    onError={(e) => e.target.style.display='none'} 
+                    onClick={(e) => handleMediaClick(e, coverImage)} 
+                />
+                <div className="zoom-hint">Double-tap to Zoom</div>
+              </>
             ) : (
               <div className="no-image-pattern"><span style={{fontSize:'30px'}} className="ani-hammer">🔨</span><span style={{fontSize:'12px', opacity:0.6}}>No Preview</span></div>
             )}
@@ -99,17 +136,20 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
             
             {isOwner && <div style={{position:'absolute', top:'10px', left:'10px', background:'#3b82f6', color:'white', padding:'4px 10px', borderRadius:'8px', fontSize:'10px', fontWeight:'900', zIndex:10}}>YOU OWN THIS</div>}
 
-            {isOffline && (
+            {isClosedManually ? (
+              <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(239, 68, 68, 0.95)', color:'white', fontSize:'11px', textAlign:'center', padding:'4px 0', fontWeight: 'bold'}}>
+                ⏸️ Closed: {displayReason || 'Temporarily'}
+              </div>
+            ) : isOffline ? (
               <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(0,0,0,0.6)', color:'white', fontSize:'11px', textAlign:'center', padding:'4px 0', fontWeight: 'bold'}}>
                 Offline Currently
               </div>
-            )}
-
-            {isBusy && !isOffline && (
+            ) : isBusy ? (
               <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(220, 38, 38, 0.9)', color:'white', fontSize:'11px', textAlign:'center', padding:'4px 0', fontWeight: 'bold'}}>
                 <span className="ani-warning">🔴</span> Currently engaged
               </div>
-            )}
+            ) : null}
+
           </div>
           <div className="card-content">
             <div>
@@ -119,6 +159,8 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
             
             {isOwner ? (
                 <button className="view-btn" style={{background:'#eff6ff', color:'#2563eb', border:'1px solid #dbeafe', boxShadow:'0 4px 0 #bfdbfe'}} onClick={(e) => { e.stopPropagation(); navigate(service.service_type === 'Instant' ? '/instant-provider-dashboard' : '/local-provider-dashboard'); }}>Manage Hub</button>
+            ) : isClosedManually ? (
+                <button className="view-btn notify-btn" style={{background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#475569', boxShadow: '0 4px 0 #94a3b8'}} onClick={(e) => { e.stopPropagation(); onNotifyClick(service, 'offline'); }}>🔔 Notify When Open</button>
             ) : isOffline ? (
               <button className="view-btn notify-btn" style={{background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#475569', boxShadow: '0 4px 0 #94a3b8'}} onClick={(e) => { e.stopPropagation(); onNotifyClick(service, 'offline'); }}>🔔 Notify Me When Online</button>
             ) : isBusy ? (
@@ -128,7 +170,15 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
             )}
           </div>
         </div>
-        <div className="card-gallery">{galleryImages.length > 0 ? (galleryImages.map((img, index) => (<img key={img.id} src={img.image_url} alt="Gallery" onClick={(e) => { e.stopPropagation(); onImageClick(img.image_url); }} />))) : (<div style={{textAlign:'center', opacity:0.5, fontSize:'13px', padding:'10px'}}>No extra photos</div>)}</div>
+        
+        {/* Expanded Gallery - ONLY RENDERED IF IMAGES EXIST */}
+        {galleryImages.length > 0 && (
+            <div className="card-gallery">
+                {galleryImages.map((img) => (
+                    <img key={img.id} src={img.image_url} alt="Gallery" onClick={(e) => handleMediaClick(e, img.image_url)} />
+                ))}
+            </div>
+        )}
       </div>
     </div>
   )
@@ -158,7 +208,6 @@ export default function CustomerHome() {
   const [editName, setEditName] = useState('')
   const [editMobile, setEditMobile] = useState('')
 
-  // NEW: Add Address Mode State
   const [isAddingAddress, setIsAddingAddress] = useState(false)
   const [newAddrData, setNewAddrData] = useState({ building: '', room: '', landmark: '', lat: null, lng: null })
 
@@ -178,7 +227,6 @@ export default function CustomerHome() {
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
 
-  // --- 🔥 NEW STATE FOR SWIGGY HEADER ---
   const [displayLocation, setDisplayLocation] = useState("Tap to detect location");
   const [isLocating, setIsLocating] = useState(false);
 
@@ -186,7 +234,6 @@ export default function CustomerHome() {
     name: '', mobile: '', datetime: '', building: '', room: '', landmark: '', locationLat: null, locationLng: null
   })
 
-  // --- AUTO THEME DETECTION ---
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     setDarkMode(mediaQuery.matches);
@@ -195,7 +242,6 @@ export default function CustomerHome() {
     return () => mediaQuery.removeEventListener('change', handler);
   }, []);
 
-  // --- MOBILE BACK BUTTON HANDLER ---
   useEffect(() => {
     const handlePopState = (event) => {
         if (zoomedImage) setZoomedImage(null);
@@ -214,7 +260,6 @@ export default function CustomerHome() {
     setter(value);
   };
 
-  // --- DATE HELPERS ---
   const getMinDateTime = () => {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); 
@@ -239,8 +284,6 @@ export default function CustomerHome() {
     fetchServices()
     checkUser()
     requestNotificationPermission()
-
-    // 🔥 TRIGGER AUTO LOCATION ON APP OPEN
     handleAutoLocation();
 
     const dataChannel = supabase
@@ -299,7 +342,6 @@ export default function CustomerHome() {
     if (!error) {
       sendNotification(`🔔 Alert set! We'll notify the provider that you are waiting.`, "success");
     } else {
-      console.error("406 Error/Policy Error:", error);
       sendNotification(`Failed to set alert: ${error.message}`, "error");
     }
   }
@@ -308,15 +350,8 @@ export default function CustomerHome() {
   // SAVE ADDRESS
   // =====================
   const saveCurrentAddressToProfile = async () => {
-    if (!formData.building || !formData.locationLat) {
-        sendNotification("⚠️ Address & location required", "error");
-        return;
-    }
-    
-    if (savedAddresses.length >= 4) {
-        sendNotification("❌ Max 4 addresses allowed", "error");
-        return;
-    }
+    if (!formData.building || !formData.locationLat) { sendNotification("⚠️ Address & location required", "error"); return; }
+    if (savedAddresses.length >= 4) { sendNotification("❌ Max 4 addresses allowed", "error"); return; }
 
     const isDuplicate = savedAddresses.some(addr => 
         addr.building.toLowerCase().trim() === formData.building.toLowerCase().trim() &&
@@ -325,147 +360,82 @@ export default function CustomerHome() {
 
     if (isDuplicate) return; 
 
-    const newAddr = {
-      id: createAddrId(), 
-      building: formData.building,
-      room: formData.room,
-      landmark: formData.landmark,
-      lat: formData.locationLat,
-      lng: formData.locationLng
-    };
-
+    const newAddr = { id: createAddrId(), building: formData.building, room: formData.room, landmark: formData.landmark, lat: formData.locationLat, lng: formData.locationLng };
     const newList = [...savedAddresses, newAddr];
     
-    const { error } = await supabase
-      .from('profiles')
-      .update({ saved_addresses: newList, updated_at: new Date() })
-      .eq('id', currentUser.id);
+    const { error } = await supabase.from('profiles').update({ saved_addresses: newList, updated_at: new Date() }).eq('id', currentUser.id);
 
-    if (!error) {
-        setSavedAddresses(newList); 
-        sendNotification("Address saved!", "success");
-    } else {
-        console.error("Save Address Error:", error);
-        sendNotification(`Failed to save: ${error.message}`, "error");
-    }
+    if (!error) { setSavedAddresses(newList); sendNotification("Address saved!", "success"); } else { sendNotification(`Failed to save: ${error.message}`, "error"); }
   };
 
-  // =====================
-  // ADD ADDRESS
-  // =====================
   const addNewAddressDirectly = async () => {
-    if (!newAddrData.building || !newAddrData.lat) {
-        sendNotification("⚠️ Building & GPS required", "error");
-        return;
-    }
-
-    if (savedAddresses.length >= 4) {
-        sendNotification("❌ Max 4 addresses allowed", "error");
-        return;
-    }
+    if (!newAddrData.building || !newAddrData.lat) { sendNotification("⚠️ Building & GPS required", "error"); return; }
+    if (savedAddresses.length >= 4) { sendNotification("❌ Max 4 addresses allowed", "error"); return; }
 
     const isDuplicate = savedAddresses.some(addr => 
         addr.building.toLowerCase().trim() === newAddrData.building.toLowerCase().trim() &&
         addr.room.toLowerCase().trim() === newAddrData.room.toLowerCase().trim()
     );
 
-    if (isDuplicate) {
-        sendNotification("⚠️ This address is already saved!", "error");
-        return;
-    }
+    if (isDuplicate) { sendNotification("⚠️ This address is already saved!", "error"); return; }
 
-    const newAddr = {
-        id: createAddrId(),
-        building: newAddrData.building,
-        room: newAddrData.room,
-        landmark: newAddrData.landmark,
-        lat: newAddrData.lat,
-        lng: newAddrData.lng
-    };
-
+    const newAddr = { id: createAddrId(), building: newAddrData.building, room: newAddrData.room, landmark: newAddrData.landmark, lat: newAddrData.lat, lng: newAddrData.lng };
     const newList = [...savedAddresses, newAddr];
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ saved_addresses: newList, updated_at: new Date() })
-      .eq('id', currentUser.id);
+    const { error } = await supabase.from('profiles').update({ saved_addresses: newList, updated_at: new Date() }).eq('id', currentUser.id);
 
     if (!error) {
-        setSavedAddresses(newList); 
-        sendNotification("New address added successfully!", "success");
-        setIsAddingAddress(false);
-        setNewAddrData({ building: '', room: '', landmark: '', lat: null, lng: null });
+        setSavedAddresses(newList); sendNotification("New address added successfully!", "success");
+        setIsAddingAddress(false); setNewAddrData({ building: '', room: '', landmark: '', lat: null, lng: null });
     } else {
         sendNotification(`Failed to save: ${error.message}`, "error");
     }
   }
 
-  // =====================
-  // DELETE ADDRESS
-  // =====================
   const deleteSavedAddress = async (id) => {
     if(!confirm("Delete this address?")) return;
     const newList = savedAddresses.filter(a => a.id !== id);
-    
-    const { error } = await supabase
-      .from('profiles')
-      .update({ saved_addresses: newList, updated_at: new Date() })
-      .eq('id', currentUser.id);
-
-    if(!error) {
-      setSavedAddresses(newList);
-      sendNotification("Address removed", "info");
-    } else {
-      sendNotification("Failed to delete", "error");
-    }
+    const { error } = await supabase.from('profiles').update({ saved_addresses: newList, updated_at: new Date() }).eq('id', currentUser.id);
+    if(!error) { setSavedAddresses(newList); sendNotification("Address removed", "info"); } else { sendNotification("Failed to delete", "error"); }
   };
 
-  // =======================================================
-  // 🔥 FETCH ADDRESS FUNCTION (Updated Logic)
-  // =======================================================
   const checkAreaValidity = async (lat, lng) => {
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
       const data = await response.json();
+      if (!data || !data.address) return { isValid: false, detectedName: "Karimnagar" };
+      const addr = data.address;
       
-      if (!data || !data.address) return { isValid: false, detectedName: "Unknown Area" };
+      const poi = addr.amenity || addr.building || addr.shop || addr.tourism || addr.historic || addr.office || null;
+      const locality = addr.village || addr.hamlet || addr.town || addr.suburb || addr.neighbourhood || addr.residential || addr.quarter || null;
+      const road = addr.road || addr.street || addr.path || null;
+      const mandal = addr.county || addr.subdistrict || null;
+      const district = addr.city || addr.state_district || addr.municipality || "Karimnagar";
 
-      const address = data.address;
-      
-      // 🔥 GET DETAILED: AREA + STATE (e.g., "Kajaguda, Telangana")
-      const localArea = address.suburb || address.neighbourhood || address.village || address.residential || address.town || address.road || "Unknown Area";
-      const cityOrState = address.city || address.state_district || address.state || "";
-      
-      const formattedLocation = cityOrState ? `${localArea}, ${cityOrState}` : localArea;
+      let headerText = "";
+      if (locality && district) headerText = `${locality}, ${district}`;
+      else if (locality && mandal) headerText = `${locality}, ${mandal}`;
+      else if (road && mandal) headerText = `${road}, ${mandal}`;
+      else if (mandal && district) headerText = `${mandal}, ${district}`;
+      else if (road && district) headerText = `${road}, ${district}`;
+      else headerText = district;
 
-      // ALWAYS VALID - NO RESTRICTIONS
-      return { 
-          isValid: true, 
-          matchedArea: localArea, 
-          detectedName: formattedLocation 
-      };
-
-    } catch (error) {
-      console.error("Geocoding error", error);
-      return { isValid: false, detectedName: "Location Error" };
-    }
+      const formLandmark = [poi, locality, road, mandal].filter(Boolean).join(", ");
+      return { isValid: true, matchedArea: formLandmark || district, detectedName: headerText };
+    } catch (error) { return { isValid: false, detectedName: "Karimnagar" }; }
   }
 
-  // =======================================================
-  // 🔥 SWIGGY STYLE AUTO LOCATION HEADER LOGIC
-  // =======================================================
   const handleAutoLocation = async () => {
+    if (isLocating) return; 
     setIsLocating(true);
     
     const processPosition = async (lat, lng) => {
        const check = await checkAreaValidity(lat, lng);
-       
-       setDisplayLocation(check.detectedName);
-       
-       if (check.isValid) {
-         setFormData(prev => ({ ...prev, locationLat: lat, locationLng: lng, landmark: check.matchedArea }));
-       }
-       setIsLocating(false);
+       requestAnimationFrame(() => {
+         setDisplayLocation(check.detectedName);
+         if (check.isValid) { setFormData(prev => ({ ...prev, locationLat: lat, locationLng: lng, landmark: check.matchedArea })); }
+         setIsLocating(false);
+       });
     };
 
     try {
@@ -475,30 +445,19 @@ export default function CustomerHome() {
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
           (pos) => processPosition(pos.coords.latitude, pos.coords.longitude),
-          () => { setDisplayLocation("Tap to detect location"); setIsLocating(false); }
+          () => { setDisplayLocation("Karimnagar"); setIsLocating(false); }
         );
       } else {
-        setDisplayLocation("GPS Not Supported");
-        setIsLocating(false);
+        setDisplayLocation("GPS Not Supported"); setIsLocating(false);
       }
     }
   }
 
-  // =======================================================
-  // 🔥 HANDLE GET LOCATION (Booking Form)
-  // =======================================================
   const handleGetLocation = async () => {
     sendNotification("📡 Detecting location...", "info");
-    
     const processPosition = async (lat, lng) => {
        const check = await checkAreaValidity(lat, lng);
-       
-       setFormData(prev => ({ 
-         ...prev, 
-         locationLat: lat, 
-         locationLng: lng, 
-         landmark: `${check.detectedName} (GPS)`
-       }));
+       setFormData(prev => ({ ...prev, locationLat: lat, locationLng: lng, landmark: `${check.matchedArea} (GPS)` }));
        sendNotification(`✅ Location found: ${check.matchedArea}`, "success");
     };
 
@@ -507,28 +466,16 @@ export default function CustomerHome() {
       await processPosition(position.coords.latitude, position.coords.longitude);
     } catch (e) {
       if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => processPosition(pos.coords.latitude, pos.coords.longitude),
-          () => sendNotification("📍 Please enable location permissions", "error")
-        );
-      } else {
-        sendNotification("❌ GPS not supported", "error");
-      }
+        navigator.geolocation.getCurrentPosition((pos) => processPosition(pos.coords.latitude, pos.coords.longitude), () => sendNotification("📍 Please enable location permissions", "error"));
+      } else { sendNotification("❌ GPS not supported", "error"); }
     }
   }
 
   const handleGetLocationForNewAddr = async () => {
     sendNotification("📡 Verifying location...", "info");
-
     const processPosition = async (lat, lng) => {
        const check = await checkAreaValidity(lat, lng);
-
-       setNewAddrData(prev => ({ 
-          ...prev, 
-          lat: lat, 
-          lng: lng, 
-          landmark: `${check.detectedName}`
-       }));
+       setNewAddrData(prev => ({ ...prev, lat: lat, lng: lng, landmark: `${check.matchedArea}` }));
        sendNotification(`✅ Location Verified: ${check.matchedArea}`, "success");
     };
 
@@ -536,14 +483,8 @@ export default function CustomerHome() {
         const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
         await processPosition(position.coords.latitude, position.coords.longitude);
     } catch (e) {
-        if ("geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => processPosition(pos.coords.latitude, pos.coords.longitude),
-                () => sendNotification("📍 Allow location access.", "error")
-            );
-        } else {
-            sendNotification("❌ GPS not supported.", "error");
-        }
+        if ("geolocation" in navigator) { navigator.geolocation.getCurrentPosition((pos) => processPosition(pos.coords.latitude, pos.coords.longitude), () => sendNotification("📍 Allow location access.", "error"));
+        } else { sendNotification("❌ GPS not supported.", "error"); }
     }
   }
 
@@ -552,14 +493,17 @@ export default function CustomerHome() {
 
     const alertChannel = supabase.channel('user-alerts')
       .on('postgres_changes', 
-        { event: 'UPDATE', schema: 'public', table: 'services', filter: `is_live=eq.true` }, 
+        { event: 'UPDATE', schema: 'public', table: 'services' }, 
         async (payload) => {
-          const { data: waiting } = await supabase
-            .from('notifications').select('*').eq('user_id', currentUser.id).eq('provider_id', payload.new.provider_id).eq('status', 'waiting').maybeSingle();
+          if (payload.new.is_available === true || payload.new.is_live === true) {
+              const { data: waiting } = await supabase
+                .from('notifications').select('*').eq('user_id', currentUser.id).eq('provider_id', payload.new.provider_id).eq('status', 'waiting').maybeSingle();
 
-          if (waiting) {
-            sendNotification(`🚀 ${payload.new.custom_service_name || payload.new.service_type} is now ONLINE! Book now?`, "success", "Provider Online");
-            await supabase.from('notifications').update({ status: 'sent' }).eq('id', waiting.id);
+              if (waiting) {
+                sendNotification(`🚀 ${payload.new.custom_service_name || payload.new.service_type} is now OPEN/ONLINE! Book now?`, "success", "Provider Available");
+                await supabase.from('notifications').update({ status: 'sent' }).eq('id', waiting.id);
+                fetchServices();
+              }
           }
         }
       )
@@ -570,7 +514,7 @@ export default function CustomerHome() {
             .from('notifications').select('*').eq('user_id', currentUser.id).eq('provider_id', payload.new.provider_id).eq('status', 'waiting').maybeSingle();
 
           if (waiting) {
-            sendNotification(`🎉 He completed work, you can book now!`, "success", "Work Completed");
+            sendNotification(`🎉 They just finished a job! You can book them now!`, "success", "Work Completed");
             await supabase.from('notifications').update({ status: 'sent' }).eq('id', waiting.id);
             fetchServices(); 
           }
@@ -606,58 +550,27 @@ export default function CustomerHome() {
   // =====================
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      navigate('/')
-      return
-    }
-  
+    if (!session) { navigate('/'); return }
     const user = session.user
     setCurrentUser(user)
-  
     const gName = user.user_metadata?.full_name || ''
     const gAvatar = user.user_metadata?.avatar_url || ''
     setGoogleUser({ name: gName, avatar: gAvatar })
   
-    let { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, saved_addresses') 
-      .eq('id', user.id)
-      .limit(1)
-      .maybeSingle()
+    let { data, error } = await supabase.from('profiles').select('id, full_name, saved_addresses').eq('id', user.id).limit(1).maybeSingle()
   
     if (!data && !error) {
-        const newProfile = { 
-            id: user.id, 
-            full_name: gName, 
-            saved_addresses: [] 
-        };
-        const { data: created } = await supabase
-            .from('profiles')
-            .insert([newProfile])
-            .select('id, full_name, saved_addresses')
-            .single();
-            
+        const newProfile = { id: user.id, full_name: gName, saved_addresses: [] };
+        const { data: created } = await supabase.from('profiles').insert([newProfile]).select('id, full_name, saved_addresses').single();
         if (created) data = created;
     }
-
-    if (error) {
-      console.error('Profile fetch error:', error.message)
-      return
-    }
+    if (error) return;
   
     const profileName = data?.full_name || gName;
     const profileAddr = Array.isArray(data?.saved_addresses) ? data.saved_addresses : [];
 
-    setEditName(profileName)
-    setEditMobile('') 
-    setSavedAddresses(profileAddr)
-  
-    setFormData(prev => ({
-      ...prev,
-      name: profileName,
-      mobile: '' 
-    }))
-  
+    setEditName(profileName); setEditMobile(''); setSavedAddresses(profileAddr);
+    setFormData(prev => ({ ...prev, name: profileName, mobile: '' }))
     fetchMyBookings(user.id)
   }
 
@@ -676,13 +589,16 @@ export default function CustomerHome() {
   const handleBookService = async () => {
     if(!currentUser) { sendNotification("Please login to book", "error"); return; }
     
+    if (selectedService.is_available === false) {
+      sendNotification("⚠️ This service is currently closed by the provider.", "error");
+      return;
+    }
+
     const { data: activeCheck } = await supabase.from('bookings').select('id').eq('service_id', selectedService.id).in('status', ['accepted', 'in_progress']);
 
     if (activeCheck && activeCheck.length > 0) {
       sendNotification("⚠️ Provider just started another job! Please wait.", "error");
-      setSelectedServiceId(null);
-      fetchServices();
-      return;
+      setSelectedServiceId(null); fetchServices(); return;
     }
     openModal(setShowBookingForm, true); 
   }
@@ -690,22 +606,14 @@ export default function CustomerHome() {
   const finalizeBooking = async (e) => {
     e.preventDefault(); 
     if (!formData.locationLat || !formData.locationLng) { sendNotification("⚠️ Location is REQUIRED (Use GPS Check)!", "error"); return; }
-    
     if (isSavingAddress) { await saveCurrentAddressToProfile(); }
 
-    setShowBookingForm(false); 
-    setBookingLoading(true)
+    setShowBookingForm(false); setBookingLoading(true)
     
     try {
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
-      
-      // ✅ FIXED: Using Standard Google Maps URL
       const mapLink = `https://www.google.com/maps?q=${formData.locationLat},${formData.locationLng}`;
-      
-      const jobDetails = { 
-        name: formData.name, mobile: formData.mobile, time: formData.datetime, 
-        building: formData.building, room: formData.room, landmark: formData.landmark, map_link: mapLink 
-      };
+      const jobDetails = { name: formData.name, mobile: formData.mobile, time: formData.datetime, building: formData.building, room: formData.room, landmark: formData.landmark, map_link: mapLink };
 
       const { error } = await supabase.from('bookings').insert([{ 
           customer_id: currentUser.id, provider_id: selectedService.provider_id, service_id: selectedService.id, 
@@ -714,19 +622,16 @@ export default function CustomerHome() {
 
       if(error) throw error;
       sendNotification("Booking Sent Successfully! 🚀", "success"); 
-      setSelectedServiceId(null); 
-      fetchMyBookings(currentUser.id); 
+      setSelectedServiceId(null); fetchMyBookings(currentUser.id); 
       if(isMobile) { setActiveTab('bookings'); setBookingTab('active'); } else { openModal(setShowMyBookings, true); setBookingTab('active'); }
       setFormData(prev => ({ ...prev, datetime: '', building: '', room: '', landmark: '', locationLat: null, locationLng: null }));
       setIsSavingAddress(false);
-    } catch (err) {
-      sendNotification("Error: " + err.message, "error");
-    } finally {
-      setBookingLoading(false);
-    }
+    } catch (err) { sendNotification("Error: " + err.message, "error"); } finally { setBookingLoading(false); }
   }
 
   const openReviewModal = (bookingId) => { setReviewBookingId(bookingId); setRatingInput(0); setReviewTextInput(''); openModal(setShowReviewModal, true); }
+  const handleQuickWord = (word) => { setReviewTextInput(prev => prev ? `${prev}, ${word}` : word); };
+
   const submitReview = async () => {
     if(ratingInput === 0) { sendNotification("Please select a star rating!", "error"); return; }
     const { error } = await supabase.from('bookings').update({ rating: ratingInput, review_text: reviewTextInput }).eq('id', reviewBookingId);
@@ -746,10 +651,7 @@ export default function CustomerHome() {
   const historyBookingsList = myBookings.filter(b => ['completed', 'cancelled', 'rejected'].includes(b.status));
   const activeBooking = activeBookingsList.length > 0 ? activeBookingsList[0] : null;
   const selectedService = services.find(s => s.id === selectedServiceId)
-  
-  // --- FILTERED SERVICES (SEARCH) ---
   const filteredServices = services.filter(service => service.service_type.toLowerCase().includes(searchTerm.toLowerCase()) || service.description?.toLowerCase().includes(searchTerm.toLowerCase()))
-  
   const userInitial = editName ? editName.charAt(0).toUpperCase() : 'U'
   const isCurrentServiceActive = selectedService && activeBookingsList.some(b => b.service_id === selectedService.id);
 
@@ -820,6 +722,38 @@ export default function CustomerHome() {
         body { background-color: var(--bg-body); color: var(--text-main); transition: background-color 0.3s, color 0.3s; }
         .app-container { min-height: 100vh; background-color: var(--bg-body); }
         
+        /* 🔥 NEW SVG ANIMATION STYLES 🔥 */
+        .info-svg {
+            width: 18px; height: 18px; 
+            fill: none; stroke: currentColor; 
+            stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+            margin-right: 8px; flex-shrink: 0; color: #3b82f6;
+        }
+        
+        .svg-phone path {
+            stroke-dasharray: 8;
+            animation: dashMove 1s linear infinite;
+        }
+        @keyframes dashMove {
+            to { stroke-dashoffset: -16; }
+        }
+
+        .svg-mail {
+            animation: floatMail 2s ease-in-out infinite;
+        }
+        @keyframes floatMail {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+
+        .svg-clock .hands {
+            transform-origin: 12px 12px;
+            animation: spinClock 2s linear infinite;
+        }
+        @keyframes spinClock {
+            to { transform: rotate(360deg); }
+        }
+
         /* 🔥 SWIGGY HEADER STYLES 🔥 */
         .swiggy-header {
             position: sticky;
@@ -838,7 +772,7 @@ export default function CustomerHome() {
         }
         .loc-icon-box {
             font-size: 24px;
-            color: #e11d48; /* Swiggy-ish Red/Pink */
+            color: #e11d48;
             animation: bounce 2s infinite;
         }
         .loc-info {
@@ -857,21 +791,35 @@ export default function CustomerHome() {
             align-items: center;
             gap: 4px;
         }
-        .loc-value {
+        
+        /* 🔥 MARQUEE SCROLLING CSS FOR LOCATION 🔥 */
+        .loc-value-wrapper {
+            width: 150px; 
+            overflow: hidden;
+            white-space: nowrap;
+            mask-image: linear-gradient(to right, black 85%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+            display: flex;
+            align-items: center;
+        }
+        .scroll-text {
+            display: inline-block;
             font-size: 14px;
             font-weight: 700;
             color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            animation: scrollText 5s linear infinite alternate;
+            padding-right: 10px;
         }
+        @keyframes scrollText {
+            0%, 20% { transform: translateX(0); }
+            80%, 100% { transform: translateX(min(0px, calc(150px - 100%))); }
+        }
+
         .arrow-down {
             font-size: 10px;
             color: var(--text-sub);
             transition: transform 0.2s;
+            margin-left: 4px;
         }
         .loc-info:active .arrow-down {
             transform: rotate(180deg);
@@ -914,21 +862,96 @@ export default function CustomerHome() {
         .location-btn { background: #f59e0b; color: white; padding: 10px; width: 100%; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 5px; box-shadow: 0 4px 0 #d97706; }
         .location-btn.detected { background: #10b981; box-shadow: 0 4px 0 #047857; }
         
-        .service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 40px; padding: 40px 20px; max-width: 1200px; margin: 0 auto; }
-        .card-wrapper { position: relative; height: 380px; perspective: 1000px; }
-        .service-card { position: relative; width: 100%; height: 100%; background: var(--bg-card); border-radius: 20px; box-shadow: 0 10px 30px var(--shadow-color); transition: all 0.3s ease; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--border-color); }
-        .service-card:hover { transform: translateY(-5px); box-shadow: 0 15px 35px var(--shadow-color); }
-        .service-card.expanded { position: absolute; top: -10%; left: -10%; width: 120%; height: 120%; z-index: 99; display: flex; flex-direction: row; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
+        /* 🔥 UPGRADED CARD HOVER GRID 🔥 */
+        .service-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+            gap: 40px; 
+            padding: 40px 20px; 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+
+        .card-wrapper { 
+            position: relative; 
+            height: 420px; /* Fixed anchor height */
+            z-index: 1;
+        }
+        
+        .service-card { 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100%; height: 420px; /* Sits completely in wrapper initially */
+            background: var(--bg-card); 
+            border-radius: 20px; 
+            box-shadow: 0 10px 30px var(--shadow-color); 
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
+            overflow: hidden; 
+            display: flex; flex-direction: column; 
+            border: 1px solid var(--border-color); 
+            z-index: 10;
+        }
+        
+        /* 🔥 ONLY HOVER IF THERE ARE EXTRA IMAGES 🔥 */
+        .service-card.has-gallery:hover, .service-card.expanded.has-gallery { 
+            height: auto; 
+            min-height: 420px;
+            transform: scale(1.05); 
+            z-index: 100;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2); 
+        }
+
         .card-main { flex: 1; display: flex; flex-direction: column; height: 100%; }
-        .cover-img { height: 200px; width: 100%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-        .cover-img img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+        
+        .cover-img { 
+            height: 200px; min-height: 200px; 
+            width: 100%; 
+            background: #f1f5f9; 
+            display: flex; align-items: center; justify-content: center; 
+            overflow: hidden; position: relative; cursor: pointer;
+        }
+        
+        .cover-img img { width: 100%; height: 100%; object-fit: cover; }
+        
+        .zoom-hint {
+            position: absolute;
+            bottom: 25px; right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 10px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .service-card:hover .zoom-hint { opacity: 1; }
+
         .card-content { padding: 20px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; color: var(--text-main); }
         .card-content h3 { margin: 0 0 10px 0; font-size: 1.2rem; color: var(--text-main); }
         .card-content p { font-size: 0.9rem; color: var(--text-sub); margin: 0; }
         
-        .card-gallery { display: none; width: 120px; background: var(--bg-body); border-left: 1px solid var(--border-color); padding: 10px; flex-direction: column; gap: 10px; overflow-y: auto; }
-        .service-card.expanded .card-gallery { display: flex; }
-        .card-gallery img { width: 100%; height: 80px; object-fit: cover; border-radius: 8px; cursor: zoom-in; border: 1px solid var(--border-color); }
+        /* 🔥 "BOOK PAGE FLIP" EFFECT FOR GALLERY 🔥 */
+        .card-gallery { 
+            display: flex; gap: 10px; 
+            padding: 0 20px; 
+            max-height: 0; 
+            opacity: 0; 
+            overflow-x: auto; 
+            flex-wrap: nowrap;
+            transform-origin: top center; /* Hinge at the top */
+            transform: rotateX(-90deg); /* Folded up inside */
+            transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        
+        .service-card.has-gallery:hover .card-gallery, .service-card.expanded.has-gallery .card-gallery { 
+            max-height: 100px; 
+            opacity: 1; 
+            padding-bottom: 20px; 
+            transform: rotateX(0deg); /* Flips open like a notepad page */
+        }
+        
+        .card-gallery img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; flex-shrink: 0; border: 1px solid var(--border-color); cursor: zoom-in; }
         
         .search-container { margin: 0 auto; max-width: 600px; position: relative; }
         .search-input { width: 100%; padding: 15px 20px; border-radius: 50px; border: 1px solid var(--border-color); font-size: 16px; box-shadow: 0 4px 6px -1px var(--shadow-color); outline: none; background: var(--bg-card); color: var(--text-main); }
@@ -938,6 +961,12 @@ export default function CustomerHome() {
         .star-rating.active { color: #f59e0b; }
         .star-rating.active:hover { color: #d97706; }
         .star-rating:hover { color: #fbbf24; }
+        
+        /* 🔥 QUICK WORDS CSS 🔥 */
+        .quick-words-container { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; justify-content: center; }
+        .quick-word-chip { background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main); padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; font-weight: 600; }
+        .quick-word-chip:hover { background: #eff6ff; border-color: #3b82f6; color: #2563eb; }
+        .quick-word-chip:active { transform: scale(0.95); }
         
         .toast-notification { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #10b981; color: #fff; padding: 14px 28px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.3); z-index: 99999; font-weight: 700; display: flex; align-items: center; gap: 10px; animation: slideDown 0.3s ease; }
         .toast-error { background: #ef4444; }
@@ -1024,9 +1053,24 @@ export default function CustomerHome() {
             cursor: pointer; 
         }
 
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); z-index: 10000; display: flex; justify-content: center; align-items: center; padding: 20px; }
-        .modal-content { background: var(--bg-card); width: 100%; max-width: 500px; border-radius: 16px; padding: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; position:relative; animation: popIn 0.3s ease; color: var(--text-main); }
-        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        /* 🔥 MODAL "BOOK PAGE OPEN" ANIMATION 🔥 */
+        .modal-overlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); 
+            z-index: 10000; display: flex; justify-content: center; align-items: center; padding: 20px; 
+            perspective: 1500px; /* Required for 3D flip */
+        }
+        .modal-content { 
+            background: var(--bg-card); width: 100%; max-width: 500px; border-radius: 16px; padding: 25px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; position:relative; 
+            color: var(--text-main); 
+            transform-origin: left center; /* Hinge is on the left side */
+            animation: bookPageTurn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; 
+        }
+        @keyframes bookPageTurn { 
+            from { transform: rotateY(-90deg) scale(0.9); opacity: 0; } 
+            to { transform: rotateY(0deg) scale(1); opacity: 1; } 
+        }
         
         .image-zoom-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 99999; display: flex; justify-content: center; align-items: center; cursor: pointer; }
         .zoomed-img { max-width: 90%; max-height: 90vh; border-radius: 8px; }
@@ -1049,7 +1093,11 @@ export default function CustomerHome() {
         .no-services h3 { font-size: 1.5rem; color: var(--text-main); margin-bottom: 10px; }
         .no-services p { color: var(--text-sub); font-size: 1rem; max-width: 400px; margin: 0 auto; }
         
-        @media(max-width: 768px) { .service-grid { grid-template-columns: 1fr; padding: 20px; } .service-card.expanded { width: 100%; height: auto; position: relative; top: 0; left: 0; flex-direction: column; } .card-gallery { width: 100%; flex-direction row; overflow-x: auto; height: 100px; border-left: none; border-top: 1px solid #e2e8f0; } .card-gallery img { width: 80px; height: 80px; } }
+        @media(max-width: 768px) { 
+            .service-grid { grid-template-columns: 1fr; padding: 20px; } 
+            /* Fix mobile hover reset */
+            .service-card.has-gallery:hover, .service-card.expanded.has-gallery { height: auto; transform: none; box-shadow: 0 10px 30px var(--shadow-color); z-index: 10; }
+        }
 
         /* ========================================= */
         /* 🔥 NEW ANIMATION CLASSES 🔥 */
@@ -1162,34 +1210,6 @@ export default function CustomerHome() {
         .ani-multiply { animation: spin 2s linear infinite; display: inline-block; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
 
-        /* 📞 Phone: Ringing */
-        .ani-phone { animation: ring 1s cubic-bezier(.36, .07, .19, .97) infinite; transform-origin: center; display: inline-block; }
-        @keyframes ring {
-            0% { transform: rotate(0) scale(1); }
-            25% { transform: rotate(5deg) scale(1.1); }
-            50% { transform: rotate(-5deg) scale(1.1); }
-            75% { transform: rotate(5deg) scale(1.1); }
-            100% { transform: rotate(0) scale(1); }
-        }
-
-        /* ✉️ Envelope: New Message Bounce */
-        .ani-mail { animation: bounceMail 2s infinite; display: inline-block; }
-        @keyframes bounceMail {
-            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-10px); }
-            60% { transform: translateY(-5px); }
-        }
-
-        /* ⏰ Alarm: Jumping Real Alarm */
-        .ani-alarm { animation: alarmJump 0.5s infinite; display: inline-block; }
-        @keyframes alarmJump {
-            0% { transform: translateY(0) rotate(0); }
-            25% { transform: translateY(-10px) rotate(-10deg); }
-            50% { transform: translateY(0) rotate(10deg); }
-            75% { transform: translateY(-5px) rotate(-10deg); }
-            100% { transform: translateY(0) rotate(0); }
-        }
-
         /* 📅 Calendar: Page Flip/Wobble */
         .ani-calendar { animation: wobble 2s infinite; display: inline-block; }
         @keyframes wobble {
@@ -1229,19 +1249,6 @@ export default function CustomerHome() {
             100% { transform: translateY(0) rotate(0); }       /* Rest */
         }
 
-        /* ✏️ Pencil: Writing Motion */
-        .ani-edit { 
-            animation: writing 1.5s ease-in-out infinite; 
-            display: inline-block; 
-        }
-        @keyframes writing {
-            0% { transform: rotate(0deg) translate(0,0); }
-            25% { transform: rotate(15deg) translate(2px, -2px); } /* Tilt right & up */
-            50% { transform: rotate(0deg) translate(0,0); }
-            75% { transform: rotate(-10deg) translate(-2px, 2px); } /* Tilt left & down */
-            100% { transform: rotate(0deg) translate(0,0); }
-        }
-
         /* 🚪 Door: "Guy Going Out" (Slide Exit Motion) */
         .ani-door { 
             animation: doorExit 2s ease-in-out infinite; 
@@ -1276,20 +1283,19 @@ export default function CustomerHome() {
             {/* 🔥🔥🔥 SWIGGY HEADER ADDED HERE (STICKY TOP) 🔥🔥🔥 */}
             <div className="swiggy-header">
                 <div className="loc-icon-box">
-                    {/* SVG Icon Replacement */}
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color:'#e11d48'}}>
                       <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                       <circle cx="12" cy="10" r="3"></circle>
                     </svg>
                 </div>
-                {/* Clicking this area triggers the location refresh/permission request */}
                 <div className="loc-info" onClick={handleAutoLocation}>
                     <span className="loc-label">Current Location</span>
-                    <div className="loc-value">
-                        {isLocating ? "Detecting..." : displayLocation} 
+                    <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
+                        <div className="loc-value-wrapper">
+                            <span className="scroll-text">{isLocating ? "Detecting..." : displayLocation}</span> 
+                        </div>
                         <span className="arrow-down">▼</span>
                     </div>
-                    {/* Prompt for user action if location is not detected yet or user wants to retry */}
                     {!isLocating && displayLocation === "Tap to detect location" && (
                         <span style={{fontSize:'10px', color:'var(--text-sub)'}}>Click here to update</span>
                     )}
@@ -1595,15 +1601,43 @@ export default function CustomerHome() {
                 <button onClick={() => setSelectedServiceId(null)} style={{background:'none', border:'none', fontSize:'24px', cursor:'pointer', color: 'var(--text-main)'}}><span className="ani-multiply">✖</span></button>
             </div>
             <p style={{marginBottom:'20px', lineHeight:'1.6', color:'var(--text-sub)'}}>{selectedService.description || "No specific description provided."}</p>
+            
+            {/* 🔥 UPDATED: Emojis swapped out for Custom SVG Animations! */}
             <div style={{background:'var(--bg-body)', padding:'15px', borderRadius:'12px', marginBottom:'20px', border:'1px solid var(--border-color)'}}>
-              <p style={{marginBottom:'8px'}}><span className="ani-phone">📞</span> <strong>Mobile:</strong> {selectedService.mobile}</p>
-              <p style={{marginBottom:'8px'}}><span className="ani-mail">✉️</span> <strong>Email:</strong> {selectedService.contact_email}</p>
-              <p style={{marginBottom:'0'}}><span className="ani-alarm">⏰</span> <strong>Hours:</strong> {selectedService.timing}</p>
+              <p style={{marginBottom:'8px', display:'flex', alignItems:'center'}}>
+                <svg className="info-svg svg-phone" viewBox="0 0 24 24">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                </svg>
+                <strong>Mobile:</strong> <span style={{marginLeft: '5px'}}>{selectedService.mobile}</span>
+              </p>
+              
+              <p style={{marginBottom:'8px', display:'flex', alignItems:'center'}}>
+                <svg className="info-svg svg-mail" viewBox="0 0 24 24">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
+                <strong>Email:</strong> <span style={{marginLeft: '5px'}}>{selectedService.contact_email}</span>
+              </p>
+              
+              <p style={{marginBottom:'0', display:'flex', alignItems:'center'}}>
+                <svg className="info-svg svg-clock" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline className="hands" points="12 6 12 12 16 14" />
+                </svg>
+                <strong>Hours:</strong> <span style={{marginLeft: '5px'}}>{selectedService.timing}</span>
+              </p>
             </div>
+            
             {currentUser?.id === selectedService.provider_id ? (
                 <div style={{padding:'20px', background:'#f0f9ff', borderRadius:'12px', textAlign:'center'}}>
                     <p style={{color:'#0369a1', fontWeight:700, marginBottom:'10px'}}>This is your serviceListing.</p>
                     <button className="btn" onClick={() => navigate(selectedService.service_type === 'Instant' ? '/instant-provider-dashboard' : '/local-provider-dashboard')}>Manage Service Hub</button>
+                </div>
+            ) : selectedService.is_available === false ? (
+                <div style={{marginTop:'20px', textAlign:'center'}}>
+                    <button className="btn" disabled style={{width:'100%', background:'#ef4444', cursor:'not-allowed', opacity: 0.8}}>
+                        <span className="ani-cross">⏸️</span> Closed: {selectedService.close_reason ? (selectedService.close_reason.length > 25 ? selectedService.close_reason.substring(0,25) + '...' : selectedService.close_reason) : 'Temporarily'}
+                    </button>
                 </div>
             ) : isCurrentServiceActive ? (
                 <div style={{marginTop:'20px', textAlign:'center'}}>
@@ -1752,6 +1786,16 @@ export default function CustomerHome() {
             <div style={{textAlign:'center', marginBottom:'20px'}}>
               {[1,2,3,4,5].map(s => <span key={s} className={`star-rating ${ratingInput >= s ? 'active' : ''}`} onClick={() => setRatingInput(s)}>★</span>)}
             </div>
+            
+            {/* 🔥 QUICK WORDS SECTION 🔥 */}
+            <div className="quick-words-container">
+                {QUICK_REVIEW_WORDS.map((word, i) => (
+                    <span key={i} className="quick-word-chip" onClick={() => handleQuickWord(word)}>
+                        {word}
+                    </span>
+                ))}
+            </div>
+
             <textarea className="form-input" placeholder="Your review..." value={reviewTextInput} onChange={e => setReviewTextInput(e.target.value)} />
             <button className="btn" style={{width:'100%'}} onClick={submitReview}>Submit</button>
           </div>

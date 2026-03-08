@@ -33,7 +33,18 @@ export default function ProviderDashboard() {
   const [rejectReasonType, setRejectReasonType] = useState('Distance too far')
   const [rejectCustomReason, setRejectCustomReason] = useState('')
   const [rejectLoading, setRejectLoading] = useState(false)
+
+  // --- 🏪 STORE STATUS STATES (Temporarily Close) ---
+  const [isClosed, setIsClosed] = useState(false)
+  const [showCloseMenu, setShowCloseMenu] = useState(false)
+  const [closeDuration, setCloseDuration] = useState('1 Hour')
+  const [customUntilDate, setCustomUntilDate] = useState('') // New DateTime State
+  const [closeReason, setCloseReason] = useState('Emergency')
+  const [otherReason, setOtherReason] = useState('')
   
+  // --- 🛑 DELETE SUGGESTION MODAL STATE ---
+  const [showDeleteSuggestion, setShowDeleteSuggestion] = useState(false)
+
   // --- NOTIFICATION STATE ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
 
@@ -46,6 +57,32 @@ export default function ProviderDashboard() {
     } catch (e) { return 'N/A'; }
   }
 
+  // --- DATETIME VALIDATION HELPERS ---
+  const getMinDateTime = () => {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      return now.toISOString().slice(0, 16);
+  };
+  const getMaxDateTime = () => {
+      const max = new Date();
+      max.setMonth(max.getMonth() + 1);
+      max.setMinutes(max.getMinutes() - max.getTimezoneOffset());
+      return max.toISOString().slice(0, 16);
+  };
+
+  const handleCustomDateChange = (e) => {
+      const selectedDate = new Date(e.target.value);
+      const maxDate = new Date();
+      maxDate.setMonth(maxDate.getMonth() + 1);
+
+      if (selectedDate > maxDate) {
+          setShowDeleteSuggestion(true);
+          setCustomUntilDate(''); // Reset input
+      } else {
+          setCustomUntilDate(e.target.value);
+      }
+  };
+
   // 🎨 STYLES
   const styles = `
     body.provider-body { margin: 0; font-family: 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #064e3b 0%, #022c22 100%); color: #ecfdf5; min-height: 100vh; }
@@ -56,40 +93,22 @@ export default function ProviderDashboard() {
 
     /* --- 3D TAB BUTTONS --- */
     .nav-tabs { display: flex; gap: 20px; margin: 30px auto; justify-content: center; }
-    .tab-btn { 
-        background: rgba(6, 78, 59, 0.5); 
-        border: none; 
-        color: #34d399; 
-        padding: 12px 30px; 
-        cursor: pointer; 
-        border-radius: 12px; 
-        font-weight: 700; 
-        font-size: 1rem;
-        transition: all 0.1s;
-        box-shadow: 0 4px 0 #065f46;
-        transform: translateY(0);
-    }
+    .tab-btn { background: rgba(6, 78, 59, 0.5); border: none; color: #34d399; padding: 12px 30px; cursor: pointer; border-radius: 12px; font-weight: 700; font-size: 1rem; transition: all 0.1s; box-shadow: 0 4px 0 #065f46; transform: translateY(0); }
     .tab-btn:hover { background: rgba(6, 78, 59, 0.8); transform: translateY(-2px); box-shadow: 0 6px 0 #065f46; }
     .tab-btn:active { transform: translateY(2px); box-shadow: 0 0 0 #065f46; }
-    
-    .tab-btn.active { 
-        background: #34d399; 
-        color: #022c22; 
-        box-shadow: 0 4px 0 #047857, 0 0 15px rgba(52, 211, 153, 0.4); 
-        transform: translateY(-2px);
-    }
+    .tab-btn.active { background: #34d399; color: #022c22; box-shadow: 0 4px 0 #047857, 0 0 15px rgba(52, 211, 153, 0.4); transform: translateY(-2px); }
     .tab-btn.active:active { transform: translateY(2px); box-shadow: 0 0 0 #047857; }
 
-    .dashboard-grid { display: grid; grid-template-columns: 300px 1fr; gap: 2rem; padding: 2rem; max-width: 1200px; margin: 0 auto; }
-    .sidebar-card { background: rgba(6, 78, 59, 0.6); border: 1px solid #059669; border-radius: 12px; padding: 1.5rem; height: fit-content; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-    .status { background: #065f46; color: #34d399; padding: 0.5rem; border-radius: 8px; font-weight: bold; margin-bottom: 1.5rem; display: inline-block; width: 100%; border: 1px solid #10b981; }
-    .service-info { margin-bottom: 1.5rem; color: #d1fae5; }
-    .main-panel { background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 2rem; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    /* Stacked Layout */
+    .dashboard-layout { display: flex; flex-direction: column; gap: 24px; padding: 20px; max-width: 900px; margin: 0 auto; }
+    
+    .card-panel { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; border: 1px solid rgba(52, 211, 153, 0.2); box-shadow: 0 10px 30px rgba(0,0,0,0.2); backdrop-filter: blur(10px); }
+    .preview-card { background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(6, 95, 70, 0.4)); border: 1px solid #34d399; }
     
     /* --- FORM INPUTS --- */
     .dash-form { display: flex; flex-direction: column; gap: 1.2rem; }
     .dash-label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: #a7f3d0; }
-    .dash-input, .dash-select, .dash-textarea { width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid #059669; background: rgba(0, 0, 0, 0.2); color: white; font-size: 1rem; outline: none; transition: 0.2s; }
+    .dash-input, .dash-select, .dash-textarea { width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid #059669; background: rgba(0, 0, 0, 0.2); color: white; font-size: 1rem; outline: none; transition: 0.2s; box-sizing: border-box; }
     .dash-input:focus, .dash-select:focus, .dash-textarea:focus { border-color: #34d399; background: rgba(0, 0, 0, 0.4); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2); }
     .dash-textarea { min-height: 100px; resize: vertical; }
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -105,105 +124,41 @@ export default function ProviderDashboard() {
     .delete-btn { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
 
     /* --- 🚀 3D ACTION BUTTONS --- */
-    .action-btn { 
-        padding: 0.9rem 1.5rem; 
-        border: none; 
-        border-radius: 10px; 
-        font-weight: 700; 
-        cursor: pointer; 
-        width: 100%; 
-        margin-bottom: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-size: 0.9rem;
-        position: relative;
-        transition: all 0.1s ease;
-        transform: translateY(-4px); 
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-    }
-
+    .action-btn { padding: 0.9rem 1.5rem; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.9rem; position: relative; transition: all 0.1s ease; transform: translateY(-4px); display: flex; align-items: center; justify-content: center; gap: 10px; box-sizing: border-box; }
     .action-btn:hover { transform: translateY(-6px); filter: brightness(110%); }
     .action-btn:active { transform: translateY(-1px); }
     .action-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; box-shadow: none; }
 
-    /* 1. GREEN (Edit, Save, Accept, Verify) */
     .action-btn.edit { background-color: #10b981; color: white; box-shadow: 0 5px 0 #047857, 0 10px 10px rgba(0,0,0,0.2); }
     .action-btn.edit:active { box-shadow: 0 2px 0 #047857; }
-
-    /* 2. RED (Delete Service, Delete Hub, Cancel) */
     .action-btn.delete { background-color: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; box-shadow: 0 5px 0 #450a0a, 0 10px 10px rgba(0,0,0,0.2); }
     .action-btn.delete:active { box-shadow: 0 2px 0 #450a0a; }
-
-    /* 3. SOLID RED (Reject, Decline) */
     .action-btn.reject { background-color: #ef4444; color: white; box-shadow: 0 5px 0 #991b1b, 0 10px 10px rgba(0,0,0,0.2); }
     .action-btn.reject:active { box-shadow: 0 2px 0 #991b1b; }
-
-    /* 4. BLUE (Complete Job) */
     .action-btn.complete { background-color: #3b82f6; color: white; margin-top: 10px; box-shadow: 0 5px 0 #1d4ed8, 0 10px 10px rgba(0,0,0,0.2); }
     .action-btn.complete:active { box-shadow: 0 2px 0 #1d4ed8; }
-
-    /* 5. ORANGE (Map) */
     .action-btn.map { background-color: #f59e0b; color: white; margin-top: 5px; box-shadow: 0 5px 0 #b45309, 0 10px 10px rgba(0,0,0,0.2); }
     .action-btn.map:active { box-shadow: 0 2px 0 #b45309; }
 
     /* --- ✨ ICON ANIMATIONS ✨ --- */
-    
     .icon-svg { width: 20px; height: 20px; stroke-width: 2.5; }
-    /* Wiggle Animation */
     .action-btn.edit:hover .icon-svg { animation: wiggle 0.6s ease-in-out infinite; }
-    @keyframes wiggle {
-      0%, 100% { transform: rotate(0deg); }
-      25% { transform: rotate(-10deg); }
-      75% { transform: rotate(10deg); }
-    }
-    /* Trash Lid Animation */
+    @keyframes wiggle { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-10deg); } 75% { transform: rotate(10deg); } }
     .trash-lid { transform-origin: bottom right; transition: transform 0.3s ease; }
     .action-btn.delete:hover .trash-lid { transform: rotate(-30deg) translateY(-2px); }
 
-    /* --- TOP BAR BUTTONS (3D Small) --- */
     .btn-explore { background: #065f46; border: none; color: #34d399; padding: 0.6rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 700; transition: 0.1s; box-shadow: 0 4px 0 #064e3b; transform: translateY(-2px); }
     .btn-explore:active { transform: translateY(0); box-shadow: 0 0 0 #064e3b; }
-
     .logout { background: #7f1d1d; border: none; color: #fca5a5; padding: 0.6rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 700; transition: 0.1s; box-shadow: 0 4px 0 #450a0a; transform: translateY(-2px); }
     .logout:active { transform: translateY(0); box-shadow: 0 0 0 #450a0a; }
 
-    /* --- INBOX & REFRESH BTN --- */
     .inbox-container { max-width: 800px; margin: 0 auto; }
     .inbox-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     
-    /* 🔄 FIXED REFRESH BUTTON */
-    .refresh-btn { 
-        background: #064e3b; 
-        border: 1px solid #34d399; 
-        color: #34d399; 
-        padding: 8px 20px; 
-        border-radius: 20px; 
-        cursor: pointer; 
-        font-size: 0.9rem; 
-        font-weight: bold;
-        transition: 0.2s;
-        display: flex; /* Align icon */
-        align-items: center;
-        gap: 8px;
-    }
-    
-    .refresh-btn:hover { 
-        background: #34d399; 
-        color: #022c22; 
-        transform: none !important; /* 🛑 THIS FORCES THE BUTTON TO STAY STILL */
-    }
-    
-    /* Rotate ONLY the icon */
-    .refresh-icon {
-        display: inline-block;
-        transition: transform 0.4s ease;
-    }
-    .refresh-btn:hover .refresh-icon {
-        transform: rotate(180deg);
-    }
+    .refresh-btn { background: #064e3b; border: 1px solid #34d399; color: #34d399; padding: 8px 20px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
+    .refresh-btn:hover { background: #34d399; color: #022c22; transform: none !important; }
+    .refresh-icon { display: inline-block; transition: transform 0.4s ease; }
+    .refresh-btn:hover .refresh-icon { transform: rotate(180deg); }
 
     .booking-card { background: rgba(6, 78, 59, 0.6); border: 1px solid #059669; border-radius: 12px; padding: 20px; margin-bottom: 20px; animation: fadeIn 0.5s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
     .booking-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 10px; }
@@ -238,7 +193,7 @@ export default function ProviderDashboard() {
     .toast-error { background: #ef4444; }
     .toast-info { background: #3b82f6; }
     @keyframes slideDown { from { transform: translate(-50%, -20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
-    @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; padding: 1rem; } .form-row { grid-template-columns: 1fr; } }
+    @media (max-width: 768px) { .form-row { grid-template-columns: 1fr; } }
   `;
 
   useEffect(() => {
@@ -251,6 +206,48 @@ export default function ProviderDashboard() {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3500);
   }
+
+  // --- DATABASE SYNC LOGIC FOR CLOSING STORE ---
+  const handleCloseStore = async () => {
+    let finalDuration = closeDuration;
+    
+    if (closeDuration === 'Custom Time') {
+        if (!customUntilDate) {
+            sendNotification("Please select a valid date and time.", "error");
+            return;
+        }
+        // Format the custom date so it looks nice on the dashboard (e.g., "Mar 15, 4:00 PM")
+        const dateObj = new Date(customUntilDate);
+        finalDuration = `Until ${dateObj.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}`;
+    }
+
+    const { error } = await supabase.from('services').update({ is_available: false }).eq('provider_id', user.id);
+    
+    if (!error) {
+        setIsClosed(true);
+        setShowCloseMenu(false);
+        const finalReason = closeReason === 'Other' ? otherReason : closeReason;
+        sendNotification(`Store closed ${finalDuration}. Reason: ${finalReason}`, 'info');
+        
+        // Update local state to reflect the formatted text
+        if (closeDuration === 'Custom Time') {
+             setCustomUntilDate(finalDuration); 
+        }
+    } else {
+        sendNotification("Failed to close store. Ensure is_available column exists.", "error");
+    }
+  };
+
+  const handleReopenStore = async () => {
+    const { error } = await supabase.from('services').update({ is_available: true }).eq('provider_id', user.id);
+    if (!error) {
+        setIsClosed(false);
+        setCustomUntilDate(''); // clear out old custom date
+        sendNotification("Store is now Open!", "success");
+    } else {
+        sendNotification("Failed to open store.", "error");
+    }
+  };
 
   // --- 🔴 REALTIME LISTENER ---
   useEffect(() => {
@@ -279,7 +276,8 @@ export default function ProviderDashboard() {
         setCustomName(data.custom_service_name || ''); setDescription(data.description || ''); 
         setMobile(data.mobile || ''); setContactEmail(data.contact_email || '');
         if (data.timing && data.timing.includes(' - ')) { const [start, end] = data.timing.split(' - '); setStartTime(start); setEndTime(end); }
-        setIsEditing(false) 
+        setIsEditing(false);
+        if (data.is_available === false) { setIsClosed(true); } else { setIsClosed(false); }
     } else { 
         setExistingService(null);
         setIsEditing(true) 
@@ -295,12 +293,29 @@ export default function ProviderDashboard() {
     } catch(e) { console.error(e) }
   }
 
+  // --- ACCEPT BOOKING (HIDES PROVIDER) ---
   const handleAcceptBooking = async (bookingId) => {
     const { error } = await supabase.from('bookings').update({ status: 'accepted' }).eq('id', bookingId)
-    if(error) sendNotification("Error: " + error.message, "error"); else { sendNotification("Booking Accepted!", "success"); fetchBookings(user.id); }
+    if(!error) { 
+        await supabase.from('services').update({ is_available: false }).eq('provider_id', user.id);
+        sendNotification("Booking Accepted! You are now hidden from new customers.", "success"); 
+        fetchBookings(user.id); 
+    } else {
+        sendNotification("Error: " + error.message, "error");
+    }
   }
 
-  // --- 🔴 REJECT LOGIC START ---
+  // --- COMPLETE JOB (UNHIDES PROVIDER) ---
+  const handleCompleteJob = async (bookingId) => {
+    if(!confirm("Work done?")) return;
+    const { error } = await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId)
+    if(!error) { 
+        await supabase.from('services').update({ is_available: true }).eq('provider_id', user.id);
+        sendNotification("Job Completed! You are visible to customers again.", "success"); 
+        fetchBookings(user.id); 
+    }
+  }
+
   const openRejectModal = (bookingId) => {
     setSelectedBookingId(bookingId);
     setRejectReasonType('Distance too far'); 
@@ -311,30 +326,13 @@ export default function ProviderDashboard() {
   const handleConfirmReject = async () => {
     if(!selectedBookingId) return;
     setRejectLoading(true);
-
     const finalReason = rejectReasonType === 'Other' ? rejectCustomReason : rejectReasonType;
-
-    if(rejectReasonType === 'Other' && !rejectCustomReason.trim()) {
-        alert("Please type a reason.");
-        setRejectLoading(false);
-        return;
-    }
-
-    const { error } = await supabase.from('bookings').update({ 
-        status: 'rejected', 
-        rejection_reason: finalReason 
-    }).eq('id', selectedBookingId);
-
-    if (error) {
-        sendNotification("Error: " + error.message, "error");
-    } else {
-        sendNotification("Request Declined.", "info");
-        fetchBookings(user.id);
-        setShowRejectModal(false);
-    }
+    if(rejectReasonType === 'Other' && !rejectCustomReason.trim()) { alert("Please type a reason."); setRejectLoading(false); return; }
+    
+    const { error } = await supabase.from('bookings').update({ status: 'rejected', rejection_reason: finalReason }).eq('id', selectedBookingId);
+    if (error) { sendNotification("Error: " + error.message, "error"); } else { sendNotification("Request Declined.", "info"); fetchBookings(user.id); setShowRejectModal(false); }
     setRejectLoading(false);
   }
-  // --- 🔴 REJECT LOGIC END ---
 
   const handleVerifyPin = async (bookingId, correctPin) => {
     if(pinInput[bookingId] === correctPin) {
@@ -342,12 +340,7 @@ export default function ProviderDashboard() {
         if(!error) { sendNotification("PIN Verified!", "success"); fetchBookings(user.id); }
     } else { sendNotification("Incorrect PIN.", "error"); }
   }
-  const handleCompleteJob = async (bookingId) => {
-    if(!confirm("Work done?")) return;
-    const { error } = await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId)
-    if(!error) { sendNotification("Job Completed!", "success"); fetchBookings(user.id); }
-  }
-
+  
   const handleMobileChange = (e) => { const value = e.target.value.replace(/[^0-9]/g, ''); if (value.length <= 10) setMobile(value); }
   
   const handleDeleteImage = async (imageId) => {
@@ -359,46 +352,26 @@ export default function ProviderDashboard() {
     }
   }
 
-  // --- SUBMIT HANDLER ---
   const handleSubmit = async (e) => {
     e.preventDefault(); 
     setUploading(true);
-    
-    const serviceData = { 
-        provider_id: user.id, 
-        service_type: serviceType, 
-        custom_service_name: serviceType === 'Other' ? customName : null, 
-        description, 
-        timing: `${startTime} - ${endTime}`, 
-        mobile, 
-        contact_email: contactEmail 
-    }
-
+    const serviceData = { provider_id: user.id, service_type: serviceType, custom_service_name: serviceType === 'Other' ? customName : null, description, timing: `${startTime} - ${endTime}`, mobile, contact_email: contactEmail }
     let data, error;
 
     if (existingService && existingService.id) {
         const result = await supabase.from('services').update(serviceData).eq('id', existingService.id).select();
-        data = result.data;
-        error = result.error;
+        data = result.data; error = result.error;
     } else {
         const result = await supabase.from('services').insert([serviceData]).select();
-        data = result.data;
-        error = result.error;
+        data = result.data; error = result.error;
     }
 
     if (error) {
-        console.error("Supabase Error:", error);
-        if(error.code === '23503' || error.message.includes('foreign key')) {
-           sendNotification("Database Error: Fix permissions.", "error");
-        } else {
-           sendNotification("Error: " + error.message, "error");
-        }
-        setUploading(false);
-        return;
+        if(error.code === '23503' || error.message.includes('foreign key')) { sendNotification("Database Error: Fix permissions.", "error"); } else { sendNotification("Error: " + error.message, "error"); }
+        setUploading(false); return;
     }
 
     const serviceId = data?.[0]?.id;
-    
     if (images.length > 0 && serviceId) {
       for (const file of images) {
         const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`
@@ -409,36 +382,19 @@ export default function ProviderDashboard() {
         }
       }
     }
-    
     sendNotification('Service saved successfully!', "success"); 
-    setUploading(false); 
-    window.location.reload();
+    setUploading(false); window.location.reload();
   }
 
   const handleDelete = async () => {
     if (confirm("⚠️ Are you sure? This will permanently delete your service and ALL uploaded photos.")) {
       setLoading(true);
       const { error: imageError } = await supabase.from('service_images').delete().eq('service_id', existingService.id);
-
-      if (imageError) {
-        sendNotification("Error clearing images: " + imageError.message, "error");
-        setLoading(false);
-        return;
-      }
+      if (imageError) { sendNotification("Error clearing images: " + imageError.message, "error"); setLoading(false); return; }
       const { error: serviceError } = await supabase.from('services').delete().eq('id', existingService.id);
-
-      if (serviceError) {
-        sendNotification("Error deleting service: " + serviceError.message, "error");
-      } else {
+      if (serviceError) { sendNotification("Error deleting service: " + serviceError.message, "error"); } else {
         sendNotification("Service deleted successfully!", "success");
-        setExistingService(null);
-        setIsEditing(true);
-        setServiceType('Plumber');
-        setCustomName('');
-        setDescription('');
-        setMobile('');
-        setContactEmail('');
-        setImages([]);
+        setExistingService(null); setIsEditing(true); setServiceType('Plumber'); setCustomName(''); setDescription(''); setMobile(''); setContactEmail(''); setImages([]);
       }
       setLoading(false);
     }
@@ -470,7 +426,7 @@ export default function ProviderDashboard() {
         <div className="modal-overlay">
             <div className="modal-content">
                 <h3 style={{marginTop:0, borderBottom:'1px solid #34d399', paddingBottom:'10px'}}>Decline Request</h3>
-                <p style={{fontSize:'0.9rem', color:'#d1fae5'}}>Why are you declining this job? The customer will see this reason.</p>
+                <p style={{fontSize:'0.9rem', color:'#d1fae5'}}>Why are you declining this job?</p>
                 <div style={{margin:'20px 0'}}>
                     {['Distance too far', 'Time slot not available', 'Service not available currently', 'Emergency / Personal Reason', 'Other'].map(reason => (
                         <div key={reason} className={`reason-option ${rejectReasonType === reason ? 'selected' : ''}`} onClick={() => setRejectReasonType(reason)}>
@@ -493,6 +449,26 @@ export default function ProviderDashboard() {
         </div>
       )}
 
+      {/* 🛑 DELETE SUGGESTION MODAL UI */}
+      {showDeleteSuggestion && (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{border: '1px solid #f59e0b'}}>
+                <h3 style={{marginTop:0, borderBottom:'1px solid #f59e0b', paddingBottom:'10px', color:'#fcd34d'}}>Taking a long break?</h3>
+                <p style={{fontSize:'0.9rem', color:'#d1fae5', lineHeight:'1.5'}}>
+                    You cannot pause your store for more than 1 month. If you are not planning to provide services for a while, we suggest deleting your service for now. You can easily create it again when you return!
+                </p>
+                <div style={{display:'flex', gap:'10px', marginTop: '20px'}}>
+                    <button className="action-btn delete" onClick={() => { setShowDeleteSuggestion(false); handleDelete(); }}>
+                        Delete Service
+                    </button>
+                    <button className="action-btn" style={{background:'#374151', color:'white', boxShadow:'0 5px 0 #1f2937'}} onClick={() => setShowDeleteSuggestion(false)}>
+                        Got it
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
       <div className="top-bar">
         <h1>Provider Dashboard</h1>
         <div className="top-bar-actions">
@@ -509,90 +485,41 @@ export default function ProviderDashboard() {
       </div>
 
       {activeTab === 'service' ? (
-        <div className="dashboard-grid">
-            <div className="sidebar-card">
-            {existingService ? (
-                <>
-                <div className="status">Service Active <span>✔</span></div>
-                <div style={{marginBottom:'15px'}}>
-                    <div style={{fontSize:'40px', color:'#f59e0b', fontWeight:'bold'}}>{avgRating} ★</div>
-                    <div style={{fontSize:'12px', color:'#9ca3af'}}>Average Rating ({ratedBookings.length} reviews)</div>
-                </div>
-                <div className="service-info">You are listed as:<br/><strong style={{fontSize:'22px', color:'#ffffff'}}>{displayName}</strong></div>
-                
-                {/* ✨ ANIMATED EDIT BUTTON ✨ */}
-                <button className="action-btn edit" onClick={() => setIsEditing(true)}>
-                    <svg className="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                    Edit Service
-                </button>
-
-                {/* ✨ ANIMATED DELETE BUTTON ✨ */}
-                <button className="action-btn delete" onClick={handleDelete}>
-                    <svg className="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <g className="trash-lid">
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </g>
-                        <line x1="10" y1="11" x2="10" y2="17"></line>
-                        <line x1="14" y1="11" x2="14" y2="17"></line>
-                    </svg>
-                    Delete Service
-                </button>
-                </>
-            ) : (
-                <div className="service-info"><strong>No Service Listed</strong><br/>Fill out the form.</div>
-            )}
-            </div>
+        <div className="dashboard-layout">
             
-            <div className="main-panel">
-            {isEditing ? (
-                <form onSubmit={handleSubmit} className="dash-form">
-                <h2 style={{color:'white', marginBottom:'10px'}}>{existingService ? 'Edit Details' : 'Create New Service'}</h2>
-                <div>
-                    <label className="dash-label">Service Type</label>
-                    <select className="dash-select" value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
-                    <option>Plumber</option><option>Electrician</option><option>Carpenter</option><option>Painter</option><option>Cleaning</option><option>Other</option>
-                    </select>
+            {/* 1️⃣ PREVIEW COMES FIRST */}
+            {existingService && !isEditing && (
+                <div className="card-panel preview-card">
+                    <h3 style={{margin: '0 0 15px 0', color: '#34d399', display: 'flex', alignItems: 'center', gap: '8px'}}>👀 Customer Preview <span style={{fontSize: '12px', background: '#064e3b', padding: '4px 8px', borderRadius: '12px', color: '#a7f3d0', border: '1px solid #10b981'}}>Live</span></h3>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                        <div>
+                            <h2 style={{margin: '0 0 5px 0', color: 'white', fontSize: '24px'}}>{displayName}</h2>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px'}}>
+                                <span style={{background: isClosed ? '#ef4444' : '#10b981', color: 'white', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold'}}>{isClosed ? 'Temporarily Closed' : 'Accepting Jobs'}</span>
+                                <span style={{color: '#f59e0b', fontWeight: 'bold', fontSize: '14px'}}>★ {avgRating} ({ratedBookings.length})</span>
+                            </div>
+                            <p style={{color: '#d1fae5', fontSize: '14px', margin: '0 0 10px 0', maxWidth: '500px', lineHeight: '1.5'}}>{description.substring(0, 150)}{description.length > 150 ? '...' : ''}</p>
+                        </div>
+                        {existingService.service_images && existingService.service_images.length > 0 && (
+                            <img src={existingService.service_images[0].image_url} alt="Cover" style={{width: '100px', height: '100px', objectFit: 'cover', borderRadius: '12px', border: '2px solid #34d399'}} />
+                        )}
+                    </div>
                 </div>
-                {serviceType === 'Other' && (<div><label className="dash-label">Specify Name</label><input type="text" className="dash-input" value={customName} onChange={(e) => setCustomName(e.target.value)} required /></div>)}
-                <div><label className="dash-label">Description</label><textarea className="dash-textarea" value={description} onChange={(e) => setDescription(e.target.value)} required></textarea></div>
-                <div className="form-row">
-                    <div><label className="dash-label">Mobile</label><input type="text" className="dash-input" value={mobile} onChange={handleMobileChange} required /></div>
-                    <div><label className="dash-label">Email</label><input type="email" className="dash-input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} required /></div>
-                </div>
-                <div className="form-row">
-                    <div><label className="dash-label">Start Time</label><input type="time" className="dash-input" value={startTime} onChange={(e) => setStartTime(e.target.value)} required /></div>
-                    <div><label className="dash-label">End Time</label><input type="time" className="dash-input" value={endTime} onChange={(e) => setEndTime(e.target.value)} required /></div>
-                </div>
-                <div style={{marginTop:'10px'}}>
-                    <label className="dash-label">Photo Gallery</label>
-                    {existingService?.service_images && (
-                    <div style={{marginBottom:'15px'}}><p style={{fontSize:'12px', color:'#9ca3af', marginBottom:'5px'}}>Current Photos:</p>
-                        <div className="gallery-grid">{(existingService.service_images || []).map(img => (<div key={img.id} className="img-wrapper"><img src={img.image_url} alt="Service" /><div className="delete-overlay" onClick={() => handleDeleteImage(img.id)}><button type="button" className="delete-btn">Delete 🗑️</button></div></div>))}</div>
-                    </div>)}
-                    <div className="upload-box"><span style={{display:'block', marginBottom:'5px', color: '#a7f3d0'}}>+ Click to Add New Photos</span><input type="file" multiple accept="image/*" style={{opacity:0, position:'absolute', top:0, left:0, width:'100%', height:'100%', cursor:'pointer'}} onChange={(e) => { if(e.target.files) setImages(prev => [...prev, ...Array.from(e.target.files)]) }} /></div>
-                    {images.length > 0 && (<div style={{marginTop:'15px'}}><p style={{fontSize:'12px', color:'#34d399', marginBottom:'5px'}}>New Photos:</p><div className="gallery-grid">{images.map((file, index) => (<div key={index} className="img-wrapper" style={{borderColor:'#facc15'}}><img src={URL.createObjectURL(file)} alt="Preview" /><div className="delete-overlay" onClick={() => setImages(images.filter((_, i) => i !== index))}><button type="button" className="delete-btn" style={{background:'#facc15', color:'black'}}>Remove ✖</button></div></div>))}</div></div>)}
-                </div>
-                <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
-                    <button type="submit" className="action-btn edit" disabled={uploading}>{uploading ? 'Saving...' : 'Save Changes'}</button>
-                    {existingService && (<button type="button" className="action-btn" style={{background:'#374151', color:'white', boxShadow:'0 5px 0 #1f2937'}} onClick={() => setIsEditing(false)}>Cancel</button>)}
-                </div>
-                </form>
-            ) : (
-                <div style={{width:'100%', textAlign:'left'}}>
-                <h2 style={{color:'white', marginBottom:'20px'}}>Service Overview</h2>
-                <div style={{background:'rgba(2, 44, 34, 0.6)', padding:'20px', borderRadius:'14px', marginBottom:'20px', border: '1px solid #059669'}}>
-                    <p style={{color:'#ecfdf5', lineHeight:'1.6', marginBottom:'15px'}}>{description}</p>
-                    <div style={{display:'flex', flexWrap:'wrap', gap:'20px', fontSize:'14px', color:'#86efac'}}><span>📞 {mobile}</span><span>✉️ {contactEmail}</span><span>⏰ {displayTiming}</span></div>
-                </div>
-                <h3 style={{color:'#bbf7d0', fontSize:'16px', marginBottom:'10px'}}>Uploaded Photos</h3>
-                {existingService.service_images && existingService.service_images.length > 0 ? (<div style={{display:'flex', gap:'12px', flexWrap:'wrap'}}>{(existingService.service_images || []).map(img => (<img key={img.id} src={img.image_url} alt="Service" style={{width:'100px', height:'100px', objectFit:'cover', borderRadius:'10px', border:'1px solid #10b981'}} />))}</div>) : (<p style={{color: '#9ca3af'}}>No images uploaded.</p>)}
-                
-                <div className="reviews-list-container">
-                    <h3 style={{color:'#f59e0b', fontSize:'18px', marginBottom:'15px'}}>Customer Reviews ({ratedBookings.length})</h3>
+            )}
+
+            {/* 2️⃣ SERVICE OVERVIEW & REVIEWS */}
+            {existingService && !isEditing && (
+                <div className="card-panel">
+                    <h2 style={{color:'white', marginTop:0, marginBottom:'20px'}}>Service Overview</h2>
+                    <div style={{background:'rgba(2, 44, 34, 0.6)', padding:'20px', borderRadius:'14px', marginBottom:'20px', border: '1px solid #059669'}}>
+                        <p style={{color:'#ecfdf5', lineHeight:'1.6', marginBottom:'15px'}}>{description}</p>
+                        <div style={{display:'flex', flexWrap:'wrap', gap:'20px', fontSize:'14px', color:'#86efac'}}><span>📞 {mobile}</span><span>✉️ {contactEmail}</span><span>⏰ {displayTiming}</span></div>
+                    </div>
+                    
+                    <h3 style={{color:'#bbf7d0', fontSize:'16px', marginBottom:'10px'}}>Uploaded Photos</h3>
+                    {existingService.service_images && existingService.service_images.length > 0 ? (<div style={{display:'flex', gap:'12px', flexWrap:'wrap', marginBottom: '20px'}}>{(existingService.service_images || []).map(img => (<img key={img.id} src={img.image_url} alt="Service" style={{width:'100px', height:'100px', objectFit:'cover', borderRadius:'10px', border:'1px solid #10b981'}} />))}</div>) : (<p style={{color: '#9ca3af', marginBottom: '20px'}}>No images uploaded.</p>)}
+                    
+                    <h3 style={{color:'#f59e0b', fontSize:'18px', borderTop: '1px solid #059669', paddingTop: '20px', marginBottom:'15px'}}>Customer Reviews ({ratedBookings.length})</h3>
                     {ratedBookings.length === 0 ? (
                         <p style={{color:'#9ca3af', fontStyle:'italic'}}>No reviews yet.</p>
                     ) : (
@@ -611,16 +538,125 @@ export default function ProviderDashboard() {
                         })
                     )}
                 </div>
+            )}
+
+            {/* 3️⃣ STORE STATUS (CLOSE/OPEN) */}
+            {existingService && !isEditing && (
+                <div className="card-panel" style={{borderColor: '#f59e0b'}}>
+                    <h2 style={{color: '#fcd34d', margin: '0 0 15px 0'}}>🏪 Manage Status</h2>
+                    {!isClosed ? (
+                        !showCloseMenu ? (
+                            <button className="action-btn map" onClick={() => setShowCloseMenu(true)}>⏸️ Temporarily Close Store</button>
+                        ) : (
+                            <div style={{background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '12px'}}>
+                                <label style={{display: 'block', fontSize: '13px', color: '#a7f3d0', marginBottom: '5px'}}>Duration:</label>
+                                <select className="dash-select" style={{marginBottom: '15px'}} value={closeDuration} onChange={e => setCloseDuration(e.target.value)}>
+                                    <option>1 Hour</option>
+                                    <option>1 Day</option>
+                                    <option>1 Month</option>
+                                    <option>Custom Time</option>
+                                </select>
+                                
+                                {/* 📅 NATIVE UI DATETIME PICKER */}
+                                {closeDuration === 'Custom Time' && (
+                                    <>
+                                        <label style={{display: 'block', fontSize: '13px', color: '#a7f3d0', marginBottom: '5px'}}>Select End Date & Time:</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="dash-input" 
+                                            style={{marginBottom: '15px', colorScheme: 'dark'}} 
+                                            min={getMinDateTime()}
+                                            max={getMaxDateTime()}
+                                            value={customUntilDate} 
+                                            onChange={handleCustomDateChange} 
+                                        />
+                                    </>
+                                )}
+
+                                <label style={{display: 'block', fontSize: '13px', color: '#a7f3d0', marginBottom: '5px'}}>Reason:</label>
+                                <select className="dash-select" style={{marginBottom: '15px'}} value={closeReason} onChange={e => setCloseReason(e.target.value)}>
+                                    <option>Emergency</option><option>Festival</option><option>Personal</option><option>Other</option>
+                                </select>
+                                
+                                {closeReason === 'Other' && (
+                                    <input className="dash-input" style={{marginBottom: '15px'}} placeholder="Type reason..." value={otherReason} onChange={e => setOtherReason(e.target.value)} />
+                                )}
+                                
+                                <div style={{display: 'flex', gap: '15px'}}>
+                                    <button className="action-btn edit" style={{flex: 1, margin: 0}} onClick={handleCloseStore}>Confirm</button>
+                                    <button className="action-btn delete" style={{flex: 1, margin: 0}} onClick={() => setShowCloseMenu(false)}>Cancel</button>
+                                </div>
+                            </div>
+                        )
+                    ) : (
+                        <div style={{background: 'rgba(239, 68, 68, 0.1)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.3)'}}>
+                            <p style={{color: '#ef4444', fontSize: '18px', fontWeight: 'bold', margin: '0 0 10px 0'}}>
+                                Store is Closed ({closeDuration === 'Custom Time' ? customUntilDate : closeDuration})
+                            </p>
+                            <p style={{color: '#fca5a5', margin: '0 0 15px 0', fontSize: '14px'}}>Customers cannot see your profile right now.</p>
+                            <button className="action-btn edit" style={{margin: 0}} onClick={handleReopenStore}>▶️ Reopen Store</button>
+                        </div>
+                    )}
                 </div>
             )}
+
+            {/* 4️⃣ SETTINGS AT THE LAST (EDIT / DELETE / FORM) */}
+            <div className="card-panel">
+                <h2 style={{color:'white', marginTop:0, marginBottom:'20px'}}>⚙️ Service Settings</h2>
+                
+                {isEditing ? (
+                    <form onSubmit={handleSubmit} className="dash-form">
+                    <h3 style={{color:'#34d399', margin: '0 0 10px 0'}}>{existingService ? 'Edit Details' : 'Create New Service'}</h3>
+                    <div>
+                        <label className="dash-label">Service Type</label>
+                        <select className="dash-select" value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
+                        <option>Plumber</option><option>Electrician</option><option>Carpenter</option><option>Painter</option><option>Cleaning</option><option>Other</option>
+                        </select>
+                    </div>
+                    {serviceType === 'Other' && (<div><label className="dash-label">Specify Name</label><input type="text" className="dash-input" value={customName} onChange={(e) => setCustomName(e.target.value)} required /></div>)}
+                    <div><label className="dash-label">Description</label><textarea className="dash-textarea" value={description} onChange={(e) => setDescription(e.target.value)} required></textarea></div>
+                    <div className="form-row">
+                        <div><label className="dash-label">Mobile</label><input type="text" className="dash-input" value={mobile} onChange={handleMobileChange} required /></div>
+                        <div><label className="dash-label">Email</label><input type="email" className="dash-input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} required /></div>
+                    </div>
+                    <div className="form-row">
+                        <div><label className="dash-label">Start Time</label><input type="time" className="dash-input" value={startTime} onChange={(e) => setStartTime(e.target.value)} required /></div>
+                        <div><label className="dash-label">End Time</label><input type="time" className="dash-input" value={endTime} onChange={(e) => setEndTime(e.target.value)} required /></div>
+                    </div>
+                    <div style={{marginTop:'10px'}}>
+                        <label className="dash-label">Photo Gallery</label>
+                        {existingService?.service_images && (
+                        <div style={{marginBottom:'15px'}}><p style={{fontSize:'12px', color:'#9ca3af', marginBottom:'5px'}}>Current Photos:</p>
+                            <div className="gallery-grid">{(existingService.service_images || []).map(img => (<div key={img.id} className="img-wrapper"><img src={img.image_url} alt="Service" /><div className="delete-overlay" onClick={() => handleDeleteImage(img.id)}><button type="button" className="delete-btn">Delete 🗑️</button></div></div>))}</div>
+                        </div>)}
+                        <div className="upload-box"><span style={{display:'block', marginBottom:'5px', color: '#a7f3d0'}}>+ Click to Add New Photos</span><input type="file" multiple accept="image/*" style={{opacity:0, position:'absolute', top:0, left:0, width:'100%', height:'100%', cursor:'pointer'}} onChange={(e) => { if(e.target.files) setImages(prev => [...prev, ...Array.from(e.target.files)]) }} /></div>
+                        {images.length > 0 && (<div style={{marginTop:'15px'}}><p style={{fontSize:'12px', color:'#34d399', marginBottom:'5px'}}>New Photos:</p><div className="gallery-grid">{images.map((file, index) => (<div key={index} className="img-wrapper" style={{borderColor:'#facc15'}}><img src={URL.createObjectURL(file)} alt="Preview" /><div className="delete-overlay" onClick={() => setImages(images.filter((_, i) => i !== index))}><button type="button" className="delete-btn" style={{background:'#facc15', color:'black'}}>Remove ✖</button></div></div>))}</div></div>)}
+                    </div>
+                    <div style={{display:'flex', gap:'15px', marginTop:'20px'}}>
+                        <button type="submit" className="action-btn edit" disabled={uploading} style={{margin: 0}}>{uploading ? 'Saving...' : 'Save Changes'}</button>
+                        {existingService && (<button type="button" className="action-btn" style={{background:'#374151', color:'white', boxShadow:'0 5px 0 #1f2937', margin: 0}} onClick={() => setIsEditing(false)}>Cancel</button>)}
+                    </div>
+                    </form>
+                ) : (
+                    <div>
+                        <button className="action-btn edit" onClick={() => setIsEditing(true)}>
+                            <svg className="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            Edit Service Details
+                        </button>
+                        <button className="action-btn delete" onClick={handleDelete} style={{margin: 0}}>
+                            <svg className="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><g className="trash-lid"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></g><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                            Delete Entire Service
+                        </button>
+                    </div>
+                )}
             </div>
+            
         </div>
       ) : (
         <div className="inbox-container" style={{padding:'0 20px'}}>
              <div className="inbox-header-row">
                 <h2 style={{color:'white', margin:0}}>Booking Requests</h2>
                 <button className="refresh-btn" onClick={() => fetchBookings(user?.id)}>
-                    {/* 🔄 ICON WRAPPED IN SPAN TO FIX ROTATION */}
                     <span className="refresh-icon">🔄</span> Refresh
                 </button>
              </div>
@@ -642,7 +678,6 @@ export default function ProviderDashboard() {
                                 <span className={`status-badge status-${booking.status}`}>{booking.status.replace('_', ' ')}</span>
                             </div>
 
-                            {/* DETAILS & MAP */}
                             <div className="job-details-box">
                                 <div className="job-row">
                                     <span className="job-icon">⏰</span> 
@@ -671,19 +706,18 @@ export default function ProviderDashboard() {
                                 </div>
                             )}
 
-                            {/* ACTIONS */}
                             {booking.status === 'pending' && (
                                 <div style={{textAlign:'right'}}>
-                                    <p style={{marginBottom:'10px', color:'#ecfdf5'}}>Customer requested this service.</p>
-                                    <div style={{display:'flex', gap:'10px', justifyContent:'flex-end'}}>
-                                        <button className="action-btn reject" onClick={() => openRejectModal(booking.id)}>Decline</button>
-                                        <button className="action-btn edit" style={{width:'auto', margin:0}} onClick={() => handleAcceptBooking(booking.id)}>Accept</button>
+                                    <p style={{marginBottom:'10px', color:'#ecfdf5', textAlign: 'left'}}>Customer requested this service. Please respond.</p>
+                                    <div style={{display:'flex', gap:'15px', justifyContent:'space-between', width: '100%'}}>
+                                        <button className="action-btn reject" style={{flex: 1, margin: 0}} onClick={() => openRejectModal(booking.id)}>Decline ❌</button>
+                                        <button className="action-btn edit" style={{flex: 1, margin: 0}} onClick={() => handleAcceptBooking(booking.id)}>Accept ✔️</button>
                                     </div>
                                 </div>
                             )}
                             {booking.status === 'accepted' && (
                                 <div>
-                                    <p style={{color:'#fde047', marginBottom:'5px'}}>Request Accepted.</p>
+                                    <p style={{color:'#fde047', marginBottom:'5px'}}>Request Accepted. Profile is hidden.</p>
                                     <p style={{fontSize:'0.9rem', color:'#d1fae5'}}>Ask customer for PIN when you arrive.</p>
                                     <div className="pin-input-group">
                                         <input type="text" maxLength="4" className="pin-field" placeholder="PIN" onChange={(e) => setPinInput({...pinInput, [booking.id]: e.target.value})} />
