@@ -700,7 +700,7 @@ export default function CustomerHome() {
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       
       // ✅ FIXED: Using Standard Google Maps URL
-      const mapLink = `http://maps.google.com/maps?q=${formData.locationLat},${formData.locationLng}`;
+      const mapLink = `https://www.google.com/maps?q=${formData.locationLat},${formData.locationLng}`;
       
       const jobDetails = { 
         name: formData.name, mobile: formData.mobile, time: formData.datetime, 
