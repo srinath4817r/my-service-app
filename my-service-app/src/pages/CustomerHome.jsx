@@ -4,9 +4,29 @@ import { useNavigate } from 'react-router-dom'
 import { Geolocation } from '@capacitor/geolocation'
 
 // =====================
-// HELPERS
+// HELPERS & CONSTANTS
 // =====================
 const createAddrId = () => crypto.randomUUID()
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371; 
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; 
+};
+
+// --- AUDIO NOTIFICATION ---
+const playNotificationSound = () => {
+    try {
+        const audio = new Audio('https://actions.google.com/sounds/v1/alarms/positive_ping.ogg');
+        audio.play().catch(() => console.log("Audio autoplay blocked by browser"));
+    } catch(e) {}
+}
 
 // --- 0. ANIMATED ICON DATA (SVG PATHS) ---
 const ANIMATED_HOME_ICONS = [
@@ -53,14 +73,90 @@ const ANIMATED_QUICK_ICONS = {
   ]
 };
 
-const QUICK_REVIEW_WORDS = [
-    "Excellent service 🌟", 
-    "On time ⏰", 
-    "Very professional 💼", 
-    "Highly recommended 👍", 
-    "Polite behavior 🤝", 
-    "Great value 💰"
-];
+const QUICK_REVIEW_WORDS = [ "Excellent service 🌟", "On time ⏰", "Very professional 💼", "Highly recommended 👍", "Polite behavior 🤝", "Great value 💰" ];
+
+// =====================
+// LEAFLET MAP COMPONENTS
+// =====================
+const LeafletBookingMap = ({ lat, lng, onLocationChange }) => {
+    const mapRef = useRef(null);
+    const markerRef = useRef(null);
+
+    useEffect(() => {
+        if (!window.L || mapRef.current) return;
+        mapRef.current = window.L.map('booking-map-container').setView([lat, lng], 16);
+        window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(mapRef.current);
+        
+        const customIcon = window.L.divIcon({ html: '<div style="font-size:36px; text-shadow: 0 4px 10px rgba(0,0,0,0.4); animation: pinDrop 0.5s ease-out;">📍</div>', className: '', iconSize: [36, 36], iconAnchor: [18, 36] });
+        markerRef.current = window.L.marker([lat, lng], {draggable: true, icon: customIcon}).addTo(mapRef.current);
+
+        markerRef.current.on('dragend', function(e) {
+            const pos = markerRef.current.getLatLng();
+            onLocationChange(pos.lat, pos.lng);
+        });
+
+        return () => { mapRef.current?.remove(); mapRef.current = null; }
+    }, []);
+
+    useEffect(() => {
+        if (mapRef.current && markerRef.current) {
+            mapRef.current.setView([lat, lng]);
+            markerRef.current.setLatLng([lat, lng]);
+        }
+    }, [lat, lng]);
+
+    return <div id="booking-map-container" style={{height: '250px', width: '100%', borderRadius: '12px', border: '2px solid #3b82f6', zIndex: 1, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}></div>
+}
+
+// 🔥 NEW: SWIGGY STYLE LIVE MAP COMPONENT
+const LeafletLiveMap = ({ id, pLat, pLng, cLat, cLng }) => {
+    const mapRef = useRef(null);
+    const pMarkerRef = useRef(null);
+    const lineRef = useRef(null);
+
+    useEffect(() => {
+        if (!window.L || mapRef.current) return;
+        
+        // Disable scroll zoom so it doesn't interrupt user scrolling on mobile
+        mapRef.current = window.L.map(`live-map-${id}`, { zoomControl: false, scrollWheelZoom: false }).setView([cLat, cLng], 14);
+        
+        // Clean map: Light mode, ONLY roads, no labels
+        window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(mapRef.current);
+        
+        const homeIcon = window.L.divIcon({ html: '<div style="font-size:30px; text-shadow: 0 4px 10px rgba(0,0,0,0.3);">🏠</div>', className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
+        // The bike icon gets the smooth-glide CSS class
+        const bikeIcon = window.L.divIcon({ html: '<div style="font-size:36px; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3)); transform: scaleX(-1);">🛵</div>', className: 'bike-pulse smooth-glide', iconSize: [36, 36], iconAnchor: [18, 18] });
+
+        window.L.marker([cLat, cLng], {icon: homeIcon}).addTo(mapRef.current);
+        pMarkerRef.current = window.L.marker([pLat, pLng], {icon: bikeIcon}).addTo(mapRef.current);
+
+        // Draw dashed blue routing line between them
+        lineRef.current = window.L.polyline([[pLat, pLng], [cLat, cLng]], {
+            color: '#3b82f6', 
+            weight: 4, 
+            dashArray: '8, 8', 
+            opacity: 0.8,
+            lineCap: 'round'
+        }).addTo(mapRef.current);
+
+        // Auto-frame perfectly around both markers
+        mapRef.current.fitBounds([[pLat, pLng], [cLat, cLng]], { padding: [40, 40], maxZoom: 17 });
+
+        return () => { mapRef.current?.remove(); mapRef.current = null; }
+    }, [id]);
+
+    // 🔥 Update live when provider moves 🔥
+    useEffect(() => {
+        if (mapRef.current && pMarkerRef.current && lineRef.current) {
+            pMarkerRef.current.setLatLng([pLat, pLng]);
+            lineRef.current.setLatLngs([[pLat, pLng], [cLat, cLng]]);
+            // Gently re-frame as they move closer
+            mapRef.current.fitBounds([[pLat, pLng], [cLat, cLng]], { padding: [40, 40], maxZoom: 18, animate: true, duration: 1.5 });
+        }
+    }, [pLat, pLng, cLat, cLng]);
+
+    return <div id={`live-map-${id}`} style={{height: '280px', width: '100%', borderRadius: '12px', zIndex: 1, border: '2px solid var(--border-color)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)'}}></div>
+}
 
 // --- 1. Service Card Component ---
 const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUser }) => {
@@ -71,30 +167,18 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
   const coverImage = service.service_images?.[0]?.image_url
   const galleryImages = service.service_images?.slice(1, 4) || []
 
-  // 🔥 ONLY expand if there are actual gallery images to show!
-  const handleMouseEnter = () => { 
-    if (window.innerWidth > 768 && galleryImages.length > 0) setIsExpanded(true);
-  }
-  
-  const handleMouseLeave = () => { 
-    setIsExpanded(false);
-  }
-  
-  const handleMobileClick = () => { 
-      if (window.innerWidth <= 768 && galleryImages.length > 0) setIsExpanded(!isExpanded);
-  }
+  const handleMouseEnter = () => { if (window.innerWidth > 768 && galleryImages.length > 0) setIsExpanded(true); }
+  const handleMouseLeave = () => { setIsExpanded(false); }
+  const handleMobileClick = () => { if (window.innerWidth <= 768 && galleryImages.length > 0) setIsExpanded(!isExpanded); }
 
-  // Double Click / Single Click Handler Logic
   const handleMediaClick = (e, imgUrl) => {
     e.stopPropagation();
     if (clickTimer.current) {
-        clearTimeout(clickTimer.current);
-        clickTimer.current = null;
-        onImageClick(imgUrl); // Double-click -> Zoom
+        clearTimeout(clickTimer.current); clickTimer.current = null;
+        onImageClick(imgUrl); 
     } else {
         clickTimer.current = setTimeout(() => {
-            clickTimer.current = null;
-            onClick(service.id); // Single-click -> Open Service Details
+            clickTimer.current = null; onClick(service.id); 
         }, 250); 
     }
   }
@@ -102,31 +186,35 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
   const ratings = service.bookings?.filter(b => b.rating) || [];
   const avg = ratings.length > 0 ? (ratings.reduce((a,b)=>a+b.rating,0)/ratings.length).toFixed(1) : null;
 
+  const myActiveBooking = currentUser && service.bookings?.find(b => b.customer_id === currentUser.id && ['accepted', 'in_progress', 'pending'].includes(b.status));
+
   const isClosedManually = service.is_available === false;
   const isInstantOrLocal = service.service_type === 'Instant' || service.service_type === 'Local';
   const isOffline = isInstantOrLocal && !service.is_live;
+  
+  const isBusyWithSomeoneElse = !myActiveBooking && service.bookings?.some(b => {
+      if (b.status === 'in_progress') return true;
+      if (b.status === 'accepted') {
+          const jobTime = b.job_details?.time ? new Date(b.job_details.time).getTime() : 0;
+          const now = new Date().getTime();
+          const diffHours = (jobTime - now) / (1000 * 60 * 60);
+          return diffHours <= 2 && diffHours > -12; 
+      }
+      return false;
+  });
 
-  const isBusy = service.bookings?.some(b => b.status === 'accepted' || b.status === 'in_progress');
   const isOwner = currentUser && service.provider_id === currentUser.id;
 
-  const displayReason = service.close_reason && service.close_reason.length > 30 
-      ? service.close_reason.substring(0, 30) + '...' 
-      : service.close_reason;
+  const displayReason = service.close_reason && service.close_reason.length > 30 ? service.close_reason.substring(0, 30) + '...' : service.close_reason;
 
   return (
-    <div className="card-wrapper" style={{ opacity: (isOffline || isBusy || isClosedManually) ? 0.8 : 1 }}>
+    <div className="card-wrapper" style={{ opacity: (!myActiveBooking && (isOffline || isBusyWithSomeoneElse || isClosedManually)) ? 0.8 : 1 }}>
       <div className={`service-card ${isExpanded ? 'expanded' : ''} ${galleryImages.length > 0 ? 'has-gallery' : ''}`} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onClick={handleMobileClick}>
         <div className="card-main">
           <div className="cover-img">
             {coverImage ? (
               <>
-                <img 
-                    src={coverImage} 
-                    alt="Cover" 
-                    style={{ filter: (isOffline || isBusy || isClosedManually) ? 'grayscale(100%)' : 'none' }} 
-                    onError={(e) => e.target.style.display='none'} 
-                    onClick={(e) => handleMediaClick(e, coverImage)} 
-                />
+                <img src={coverImage} alt="Cover" style={{ filter: (!myActiveBooking && (isOffline || isBusyWithSomeoneElse || isClosedManually)) ? 'grayscale(100%)' : 'none' }} onError={(e) => e.target.style.display='none'} onClick={(e) => handleMediaClick(e, coverImage)} />
                 <div className="zoom-hint">Double-tap to Zoom</div>
               </>
             ) : (
@@ -136,7 +224,11 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
             
             {isOwner && <div style={{position:'absolute', top:'10px', left:'10px', background:'#3b82f6', color:'white', padding:'4px 10px', borderRadius:'8px', fontSize:'10px', fontWeight:'900', zIndex:10}}>YOU OWN THIS</div>}
 
-            {isClosedManually ? (
+            {myActiveBooking ? (
+              <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(16, 185, 129, 0.95)', color:'white', fontSize:'12px', textAlign:'center', padding:'6px 0', fontWeight: 'bold'}}>
+                {myActiveBooking.status === 'pending' ? '⏳ Request Sent' : '✅ Provider Accepted!'}
+              </div>
+            ) : isClosedManually ? (
               <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(239, 68, 68, 0.95)', color:'white', fontSize:'11px', textAlign:'center', padding:'4px 0', fontWeight: 'bold'}}>
                 ⏸️ Closed: {displayReason || 'Temporarily'}
               </div>
@@ -144,7 +236,7 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
               <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(0,0,0,0.6)', color:'white', fontSize:'11px', textAlign:'center', padding:'4px 0', fontWeight: 'bold'}}>
                 Offline Currently
               </div>
-            ) : isBusy ? (
+            ) : isBusyWithSomeoneElse ? (
               <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(220, 38, 38, 0.9)', color:'white', fontSize:'11px', textAlign:'center', padding:'4px 0', fontWeight: 'bold'}}>
                 <span className="ani-warning">🔴</span> Currently engaged
               </div>
@@ -159,11 +251,11 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
             
             {isOwner ? (
                 <button className="view-btn" style={{background:'#eff6ff', color:'#2563eb', border:'1px solid #dbeafe', boxShadow:'0 4px 0 #bfdbfe'}} onClick={(e) => { e.stopPropagation(); navigate(service.service_type === 'Instant' ? '/instant-provider-dashboard' : '/local-provider-dashboard'); }}>Manage Hub</button>
-            ) : isClosedManually ? (
+            ) : myActiveBooking ? (
+                <button className="view-btn notify-btn" style={{background: '#ecfdf5', border: '1px solid #10b981', color: '#047857', fontWeight:'800', boxShadow: '0 4px 0 #047857'}} onClick={(e) => { e.stopPropagation(); onClick(service.id); }}>Track Status</button>
+            ) : isClosedManually || isOffline ? (
                 <button className="view-btn notify-btn" style={{background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#475569', boxShadow: '0 4px 0 #94a3b8'}} onClick={(e) => { e.stopPropagation(); onNotifyClick(service, 'offline'); }}>🔔 Notify When Open</button>
-            ) : isOffline ? (
-              <button className="view-btn notify-btn" style={{background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#475569', boxShadow: '0 4px 0 #94a3b8'}} onClick={(e) => { e.stopPropagation(); onNotifyClick(service, 'offline'); }}>🔔 Notify Me When Online</button>
-            ) : isBusy ? (
+            ) : isBusyWithSomeoneElse ? (
               <button className="view-btn notify-btn" style={{background: '#fee2e2', border: '1px solid #ef4444', color: '#b91c1c', fontWeight:'800', boxShadow: '0 4px 0 #b91c1c'}} onClick={(e) => { e.stopPropagation(); onNotifyClick(service, 'busy'); }}><span className="ani-warning">🔴</span> Engaged: Notify me</button>
             ) : (
               <button className="view-btn" onClick={(e) => { e.stopPropagation(); onClick(service.id); }}>View Details</button>
@@ -171,7 +263,6 @@ const ServiceCard = ({ service, onClick, onImageClick, onNotifyClick, currentUse
           </div>
         </div>
         
-        {/* Expanded Gallery - ONLY RENDERED IF IMAGES EXIST */}
         {galleryImages.length > 0 && (
             <div className="card-gallery">
                 {galleryImages.map((img) => (
@@ -192,8 +283,8 @@ export default function CustomerHome() {
   const [activeTab, setActiveTab] = useState('home') 
   const [animIndex, setAnimIndex] = useState(0);
   
-  // --- THEME STATE ---
   const [darkMode, setDarkMode] = useState(false);
+  const [leafletLoaded, setLeafletLoaded] = useState(false);
 
   const [services, setServices] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -224,6 +315,14 @@ export default function CustomerHome() {
   const [reviewBookingId, setReviewBookingId] = useState(null)
   const [ratingInput, setRatingInput] = useState(0)
   const [reviewTextInput, setReviewTextInput] = useState('')
+  
+  const [issueBookingId, setIssueBookingId] = useState(null);
+
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelBookingId, setCancelBookingId] = useState(null)
+  const [cancelReasonType, setCancelReasonType] = useState('Changed my mind')
+  const [cancelCustomReason, setCancelCustomReason] = useState('')
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
 
@@ -233,6 +332,15 @@ export default function CustomerHome() {
   const [formData, setFormData] = useState({
     name: '', mobile: '', datetime: '', building: '', room: '', landmark: '', locationLat: null, locationLng: null
   })
+
+  // INJECT LEAFLET GLOBALLY FOR MAPS
+  useEffect(() => {
+    if (window.L) { setLeafletLoaded(true); return; }
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+    const js = document.createElement('script'); js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    js.onload = () => setLeafletLoaded(true);
+    document.head.appendChild(js);
+  }, []);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -246,6 +354,7 @@ export default function CustomerHome() {
     const handlePopState = (event) => {
         if (zoomedImage) setZoomedImage(null);
         else if (showReviewModal) setShowReviewModal(false);
+        else if (showCancelModal) setShowCancelModal(false);
         else if (showBookingForm) setShowBookingForm(false);
         else if (isEditingProfile) setIsEditingProfile(false);
         else if (showMyBookings) setShowMyBookings(false);
@@ -253,7 +362,7 @@ export default function CustomerHome() {
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [selectedServiceId, showBookingForm, isEditingProfile, showMyBookings, showReviewModal, zoomedImage]);
+  }, [selectedServiceId, showBookingForm, isEditingProfile, showMyBookings, showReviewModal, showCancelModal, zoomedImage]);
 
   const openModal = (setter, value) => {
     window.history.pushState(null, ""); 
@@ -265,7 +374,6 @@ export default function CustomerHome() {
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); 
     return now.toISOString().slice(0, 16);
   };
-
   const getMaxDateTime = () => {
     const maxDate = new Date();
     maxDate.setDate(maxDate.getDate() + 30); 
@@ -274,9 +382,7 @@ export default function CustomerHome() {
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setAnimIndex((prev) => prev + 1);
-    }, 2200); 
+    const interval = setInterval(() => { setAnimIndex((prev) => prev + 1); }, 2200); 
     return () => clearInterval(interval);
   }, []);
 
@@ -289,7 +395,19 @@ export default function CustomerHome() {
     const dataChannel = supabase
       .channel('dashboard-realtime-v2')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => fetchServices())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchServices())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `customer_id=eq.${currentUser?.id}` }, (payload) => { 
+          fetchServices(); fetchMyBookings(currentUser?.id); 
+          
+          if(payload.new.status === 'accepted') {
+              playNotificationSound();
+              sendNotification("✅ Your booking request was ACCEPTED!", "success", "Booking Confirmed");
+          }
+          if(payload.new.status === 'completed' && payload.old.status !== 'completed') {
+              playNotificationSound();
+              sendNotification("🎉 The provider marked the job as Done!", "success", "Work Completed");
+              if(isMobile) { setActiveTab('bookings'); setBookingTab('history'); } else { openModal(setShowMyBookings, true); setBookingTab('history'); }
+          }
+      })
       .subscribe();
 
     const handleResize = () => setIsMobile(window.innerWidth <= 768)
@@ -312,7 +430,7 @@ export default function CustomerHome() {
           window.removeEventListener('scroll', handleScroll)
           supabase.removeChannel(dataChannel);
     }
-  }, [])
+  }, [currentUser?.id])
 
   const requestNotificationPermission = async () => {
     if ('Notification' in window && Notification.permission !== 'granted') await Notification.requestPermission();
@@ -332,37 +450,22 @@ export default function CustomerHome() {
       : "Wants to know when you're available.";
 
     const { error } = await supabase.from('notifications').insert([{
-      user_id: currentUser.id,
-      provider_id: service.provider_id,
-      user_name: editName || googleUser.name,
-      status: 'waiting',
-      custom_message: customMsg
+      user_id: currentUser.id, provider_id: service.provider_id, user_name: editName || googleUser.name,
+      status: 'waiting', custom_message: customMsg
     }]);
 
-    if (!error) {
-      sendNotification(`🔔 Alert set! We'll notify the provider that you are waiting.`, "success");
-    } else {
-      sendNotification(`Failed to set alert: ${error.message}`, "error");
-    }
+    if (!error) { sendNotification(`🔔 Alert set! We'll notify the provider that you are waiting.`, "success"); } else { sendNotification(`Failed to set alert: ${error.message}`, "error"); }
   }
 
-  // =====================
-  // SAVE ADDRESS
-  // =====================
   const saveCurrentAddressToProfile = async () => {
     if (!formData.building || !formData.locationLat) { sendNotification("⚠️ Address & location required", "error"); return; }
     if (savedAddresses.length >= 4) { sendNotification("❌ Max 4 addresses allowed", "error"); return; }
 
-    const isDuplicate = savedAddresses.some(addr => 
-        addr.building.toLowerCase().trim() === formData.building.toLowerCase().trim() &&
-        addr.room.toLowerCase().trim() === formData.room.toLowerCase().trim()
-    );
-
+    const isDuplicate = savedAddresses.some(addr => addr.building.toLowerCase().trim() === formData.building.toLowerCase().trim() && addr.room.toLowerCase().trim() === formData.room.toLowerCase().trim());
     if (isDuplicate) return; 
 
     const newAddr = { id: createAddrId(), building: formData.building, room: formData.room, landmark: formData.landmark, lat: formData.locationLat, lng: formData.locationLng };
     const newList = [...savedAddresses, newAddr];
-    
     const { error } = await supabase.from('profiles').update({ saved_addresses: newList, updated_at: new Date() }).eq('id', currentUser.id);
 
     if (!error) { setSavedAddresses(newList); sendNotification("Address saved!", "success"); } else { sendNotification(`Failed to save: ${error.message}`, "error"); }
@@ -372,11 +475,7 @@ export default function CustomerHome() {
     if (!newAddrData.building || !newAddrData.lat) { sendNotification("⚠️ Building & GPS required", "error"); return; }
     if (savedAddresses.length >= 4) { sendNotification("❌ Max 4 addresses allowed", "error"); return; }
 
-    const isDuplicate = savedAddresses.some(addr => 
-        addr.building.toLowerCase().trim() === newAddrData.building.toLowerCase().trim() &&
-        addr.room.toLowerCase().trim() === newAddrData.room.toLowerCase().trim()
-    );
-
+    const isDuplicate = savedAddresses.some(addr => addr.building.toLowerCase().trim() === newAddrData.building.toLowerCase().trim() && addr.room.toLowerCase().trim() === newAddrData.room.toLowerCase().trim());
     if (isDuplicate) { sendNotification("⚠️ This address is already saved!", "error"); return; }
 
     const newAddr = { id: createAddrId(), building: newAddrData.building, room: newAddrData.room, landmark: newAddrData.landmark, lat: newAddrData.lat, lng: newAddrData.lng };
@@ -387,9 +486,7 @@ export default function CustomerHome() {
     if (!error) {
         setSavedAddresses(newList); sendNotification("New address added successfully!", "success");
         setIsAddingAddress(false); setNewAddrData({ building: '', room: '', landmark: '', lat: null, lng: null });
-    } else {
-        sendNotification(`Failed to save: ${error.message}`, "error");
-    }
+    } else { sendNotification(`Failed to save: ${error.message}`, "error"); }
   }
 
   const deleteSavedAddress = async (id) => {
@@ -447,9 +544,7 @@ export default function CustomerHome() {
           (pos) => processPosition(pos.coords.latitude, pos.coords.longitude),
           () => { setDisplayLocation("Karimnagar"); setIsLocating(false); }
         );
-      } else {
-        setDisplayLocation("GPS Not Supported"); setIsLocating(false);
-      }
+      } else { setDisplayLocation("GPS Not Supported"); setIsLocating(false); }
     }
   }
 
@@ -488,66 +583,6 @@ export default function CustomerHome() {
     }
   }
 
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const alertChannel = supabase.channel('user-alerts')
-      .on('postgres_changes', 
-        { event: 'UPDATE', schema: 'public', table: 'services' }, 
-        async (payload) => {
-          if (payload.new.is_available === true || payload.new.is_live === true) {
-              const { data: waiting } = await supabase
-                .from('notifications').select('*').eq('user_id', currentUser.id).eq('provider_id', payload.new.provider_id).eq('status', 'waiting').maybeSingle();
-
-              if (waiting) {
-                sendNotification(`🚀 ${payload.new.custom_service_name || payload.new.service_type} is now OPEN/ONLINE! Book now?`, "success", "Provider Available");
-                await supabase.from('notifications').update({ status: 'sent' }).eq('id', waiting.id);
-                fetchServices();
-              }
-          }
-        }
-      )
-      .on('postgres_changes', 
-        { event: 'UPDATE', schema: 'public', table: 'bookings', filter: `status=eq.completed` }, 
-        async (payload) => {
-          const { data: waiting } = await supabase
-            .from('notifications').select('*').eq('user_id', currentUser.id).eq('provider_id', payload.new.provider_id).eq('status', 'waiting').maybeSingle();
-
-          if (waiting) {
-            sendNotification(`🎉 They just finished a job! You can book them now!`, "success", "Work Completed");
-            await supabase.from('notifications').update({ status: 'sent' }).eq('id', waiting.id);
-            fetchServices(); 
-          }
-        }
-      ).subscribe();
-
-    return () => { supabase.removeChannel(alertChannel); };
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    const channel = supabase.channel('customer-db-changes')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bookings', filter: `customer_id=eq.${currentUser.id}` }, 
-        (payload) => {
-            fetchMyBookings(currentUser.id); 
-            if(payload.new.status === 'accepted') sendNotification("✅ Your booking request was ACCEPTED!", "success", "Booking Confirmed");
-            if(payload.new.status === 'in_progress') sendNotification("🔨 Work has started!", "info", "Work Started");
-            if(payload.new.status === 'completed') {
-                sendNotification("🎉 Job Done! Please Rate your Provider.", "success", "Work Completed");
-                if(isMobile) { setActiveTab('bookings'); setBookingTab('history'); } else { openModal(setShowMyBookings, true); setBookingTab('history'); }
-                fetchServices(); 
-            }
-            if(payload.new.status === 'rejected') {
-                sendNotification("❌ Request Declined.", "error", "Declined");
-                if(isMobile) { setActiveTab('bookings'); setBookingTab('history'); } else { openModal(setShowMyBookings, true); setBookingTab('history'); }
-            }
-      }).subscribe();
-    return () => { supabase.removeChannel(channel); }
-  }, [currentUser, isMobile]);
-
-  // =====================
-  // CHECK USER
-  // =====================
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { navigate('/'); return }
@@ -575,30 +610,37 @@ export default function CustomerHome() {
   }
 
   const fetchServices = async () => {
-    const { data } = await supabase.from('services').select('*, service_images(*), bookings(status, rating, review_text, job_details, created_at)').order('created_at', { ascending: false }).order('id', { foreignTable: 'service_images', ascending: true }) 
+    const { data } = await supabase.from('services').select('*, service_images(*), bookings(customer_id, status, rating, review_text, job_details, created_at)').order('created_at', { ascending: false }).order('id', { foreignTable: 'service_images', ascending: true }) 
     if (data) setServices(data)
   }
 
   const fetchMyBookings = async (userId) => {
     const uid = userId || currentUser?.id;
     if(!uid) return
-    const { data } = await supabase.from('bookings').select('*, services(service_type, custom_service_name)').eq('customer_id', uid).order('created_at', { ascending: false })
+    const { data } = await supabase.from('bookings').select('*, services(service_type, custom_service_name, mobile)').eq('customer_id', uid).order('created_at', { ascending: false })
     if(data) setMyBookings(data)
   }
 
   const handleBookService = async () => {
     if(!currentUser) { sendNotification("Please login to book", "error"); return; }
-    
-    if (selectedService.is_available === false) {
-      sendNotification("⚠️ This service is currently closed by the provider.", "error");
-      return;
-    }
+    if (selectedService.is_available === false) { sendNotification("⚠️ This service is currently closed by the provider.", "error"); return; }
 
-    const { data: activeCheck } = await supabase.from('bookings').select('id').eq('service_id', selectedService.id).in('status', ['accepted', 'in_progress']);
+    const myActive = selectedService.bookings?.find(b => b.customer_id === currentUser.id && ['accepted', 'in_progress'].includes(b.status));
+    if (!myActive) {
+      const isActuallyBusy = selectedService.bookings?.some(b => {
+          if (b.status === 'in_progress') return true;
+          if (b.status === 'accepted') {
+              const jobTime = b.job_details?.time ? new Date(b.job_details.time).getTime() : 0;
+              const diffHours = (jobTime - new Date().getTime()) / (1000 * 60 * 60);
+              return diffHours <= 2 && diffHours > -12; 
+          }
+          return false;
+      });
 
-    if (activeCheck && activeCheck.length > 0) {
-      sendNotification("⚠️ Provider just started another job! Please wait.", "error");
-      setSelectedServiceId(null); fetchServices(); return;
+      if (isActuallyBusy) {
+        sendNotification("⚠️ Provider is currently engaged with another customer! Please wait.", "error");
+        setSelectedServiceId(null); return;
+      }
     }
     openModal(setShowBookingForm, true); 
   }
@@ -612,8 +654,7 @@ export default function CustomerHome() {
     
     try {
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
-      const mapLink = `https://www.google.com/maps?q=${formData.locationLat},${formData.locationLng}`;
-      const jobDetails = { name: formData.name, mobile: formData.mobile, time: formData.datetime, building: formData.building, room: formData.room, landmark: formData.landmark, map_link: mapLink };
+      const jobDetails = { name: formData.name, mobile: formData.mobile, time: formData.datetime, building: formData.building, room: formData.room, landmark: formData.landmark };
 
       const { error } = await supabase.from('bookings').insert([{ 
           customer_id: currentUser.id, provider_id: selectedService.provider_id, service_id: selectedService.id, 
@@ -638,11 +679,22 @@ export default function CustomerHome() {
     if(!error) { sendNotification("Thanks for your feedback! ⭐", "success"); setShowReviewModal(false); fetchMyBookings(currentUser.id); fetchServices(); } else { sendNotification("Error saving review", "error"); }
   }
 
-  const handleCancelBooking = async (bookingId) => {
-    if(!confirm("Are you sure you want to cancel this request?")) return;
-    setMyBookings(currentBookings => currentBookings.map(b => b.id === bookingId ? { ...b, status: 'cancelled' } : b));
-    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', bookingId)
-    if (error) { sendNotification("Error cancelling.", "error"); fetchMyBookings(currentUser.id); }
+  const openCustomerCancelModal = (bookingId) => {
+      setCancelBookingId(bookingId); setCancelReasonType('Changed my mind'); setCancelCustomReason(''); openModal(setShowCancelModal, true);
+  }
+
+  const handleConfirmCancel = async () => {
+    setCancelLoading(true);
+    const finalReason = cancelReasonType === 'Other' ? cancelCustomReason : cancelReasonType;
+    if(cancelReasonType === 'Other' && !cancelCustomReason.trim()) { alert("Please type a reason."); setCancelLoading(false); return; }
+    
+    const { error } = await supabase.from('bookings').update({ status: 'cancelled', rejection_reason: `Customer Cancelled: ${finalReason}` }).eq('id', cancelBookingId);
+
+    if (!error) { 
+        sendNotification("Booking Cancelled successfully.", "info"); 
+        fetchMyBookings(currentUser.id); setShowCancelModal(false); 
+    } else { sendNotification("Error cancelling request.", "error"); }
+    setCancelLoading(false);
   }
 
   const formatDate = (isoString) => { if(!isoString) return ''; return new Date(isoString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
@@ -655,6 +707,43 @@ export default function CustomerHome() {
   const userInitial = editName ? editName.charAt(0).toUpperCase() : 'U'
   const isCurrentServiceActive = selectedService && activeBookingsList.some(b => b.service_id === selectedService.id);
 
+  // =====================
+  // 🔥 SWIGGY TRACKER UI
+  // =====================
+  const renderLiveTracker = (booking) => {
+      const { provider_lat, provider_lng, customer_lat, customer_lng } = booking;
+      
+      if (!provider_lat || !provider_lng) {
+          return (
+              <div className="tracker-waiting-box">
+                  <span className="ani-satellite" style={{fontSize: '24px', marginBottom: '10px'}}>📡</span>
+                  <p style={{margin:0, fontWeight:'600'}}>Waiting for provider's GPS signal...</p>
+                  <small style={{opacity:0.7}}>They will appear here once they start the journey.</small>
+              </div>
+          )
+      }
+
+      const distance = calculateDistance(provider_lat, provider_lng, customer_lat, customer_lng);
+      const etaMins = Math.ceil((distance / 20) * 60) || 1;
+
+      return (
+          <div className="live-tracker-container">
+              <div className="tracker-header">
+                  <div>
+                    <h4 style={{margin: 0, color: '#047857', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                        <span className="ani-run">🛵</span> Provider is on the way!
+                    </h4>
+                    <p style={{margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-sub)'}}>Est. Arrival Time: <strong>{etaMins} Mins</strong></p>
+                  </div>
+                  <div className="eta-badge">{distance.toFixed(1)} km</div>
+              </div>
+
+              {/* 🔥 CUSTOM LEAFLET MAP INJECTION 🔥 */}
+              {leafletLoaded && <LeafletLiveMap id={booking.id} pLat={provider_lat} pLng={provider_lng} cLat={customer_lat} cLng={customer_lng} />}
+          </div>
+      )
+  }
+
   const renderBookingList = () => (
     <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
         {(bookingTab === 'active' ? activeBookingsList : historyBookingsList).length === 0 ? (
@@ -663,28 +752,87 @@ export default function CustomerHome() {
                 <p>No {bookingTab} bookings found.</p>
             </div>
         ) : (
-            (bookingTab === 'active' ? activeBookingsList : historyBookingsList).map(booking => (
-                <div key={booking.id} className="booking-card-ui">
-                    <div className="booking-header">
-                        <span className="booking-service-name">{booking.services?.service_type === 'Other' ? booking.services?.custom_service_name : booking.services?.service_type}</span>
-                        <span className={`booking-status-badge status-${booking.status}`}>{booking.status === 'in_progress' ? 'Working...' : booking.status.replace('_', ' ')}</span>
+            (bookingTab === 'active' ? activeBookingsList : historyBookingsList).map(booking => {
+                const jobTime = booking.job_details?.time ? new Date(booking.job_details.time).getTime() : 0;
+                const now = new Date().getTime();
+                const diffHours = jobTime ? (jobTime - now) / (1000 * 60 * 60) : 999;
+                const isWithin5Hours = diffHours < 5 && diffHours > -12;
+                const isJourneyStarted = !!booking.provider_lat || booking.status === 'in_progress';
+
+                return (
+                    <div key={booking.id} className="booking-card-ui">
+                        <div className="booking-header">
+                            <span className="booking-service-name">{booking.services?.service_type === 'Other' ? booking.services?.custom_service_name : booking.services?.service_type}</span>
+                            <span className={`booking-status-badge status-${booking.status}`}>{booking.status === 'in_progress' ? 'Working...' : booking.status.replace('_', ' ')}</span>
+                        </div>
+                        <div className="booking-body">
+                            <div className="booking-row"><span className="ani-calendar">🗓️</span> <span>{formatDate(booking.created_at)}</span></div>
+                            {booking.status === 'pending' && <div className="booking-row text-orange"><span className="ani-hourglass">⏳</span> <span>Waiting for acceptance...</span></div>}
+                        </div>
+                        <div className="booking-footer">
+                            
+                            {(booking.status === 'accepted' || booking.status === 'in_progress') && (
+                                <>
+                                    <div className="pin-container"><span className="pin-label">Start PIN:</span><span className="pin-value">{booking.start_code}</span></div>
+                                    {renderLiveTracker(booking)}
+                                    
+                                    {/* 🔥 CALL PROVIDER BUTTON 🔥 */}
+                                    <a href={`tel:${booking.services?.mobile}`} style={{textDecoration: 'none'}}>
+                                        <button className="action-btn" style={{background: '#2563eb', color: 'white', marginTop: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'}}>
+                                            <svg className="info-svg" viewBox="0 0 24 24" style={{color:'white', margin:0, width:'20px', height:'20px'}}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
+                                            Call Provider
+                                        </button>
+                                    </a>
+                                </>
+                            )}
+                            
+                            {booking.status === 'pending' && (
+                                <button className="action-btn btn-cancel-ui" onClick={() => openCustomerCancelModal(booking.id)}>Cancel Request</button>
+                            )}
+
+                            {booking.status === 'accepted' && (
+                                isJourneyStarted ? (
+                                    <button className="action-btn btn-cancel-ui" disabled style={{opacity: 0.5, cursor: 'not-allowed', padding: '12px 5px', fontSize: '0.8rem', marginTop: '10px'}}>
+                                        🚫 Provider is on the way (Cannot Cancel)
+                                    </button>
+                                ) : isWithin5Hours ? (
+                                    <button className="action-btn btn-cancel-ui" disabled style={{opacity: 0.5, cursor: 'not-allowed', padding: '12px 5px', fontSize: '0.8rem', marginTop: '10px'}}>
+                                        🚫 Cannot Cancel (Starts within 5 hrs)
+                                    </button>
+                                ) : (
+                                    <button className="action-btn btn-cancel-ui" style={{marginTop: '10px'}} onClick={() => openCustomerCancelModal(booking.id)}>Cancel Booking</button>
+                                )
+                            )}
+
+                            {/* 🔥 COMPLETION VERIFICATION FLOW 🔥 */}
+                            {booking.status === 'completed' && !booking.rating && (
+                                <div style={{background: 'var(--bg-body)', padding: '15px', borderRadius: '12px', border: '1px solid #16a34a', marginTop: '10px'}}>
+                                    <p style={{margin: '0 0 10px 0', fontWeight: 'bold', color: '#166534'}}>The provider marked this job as Done.</p>
+                                    {issueBookingId === booking.id ? (
+                                        <div style={{background: '#fffbeb', padding: '10px', borderRadius: '8px', border: '1px dashed #d97706'}}>
+                                            <p style={{margin: '0 0 10px 0', fontSize: '13px', color: '#b45309'}}>Please contact the provider to resolve the issue:</p>
+                                            <a href={`tel:${booking.services?.mobile}`} style={{textDecoration:'none'}}><button className="action-btn" style={{background: '#d97706', color:'white', marginBottom: '10px'}}>📞 Call Provider</button></a>
+                                            <button className="action-btn" onClick={() => setIssueBookingId(null)} style={{background: 'var(--bg-card)', color: 'var(--text-main)', border: '1px solid var(--border-color)'}}>Cancel</button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <p style={{margin: '0 0 10px 0', fontSize: '13px', color: 'var(--text-sub)'}}>Did they complete the work successfully?</p>
+                                            <div style={{display: 'flex', gap: '10px'}}>
+                                                <button className="action-btn" style={{flex: 1, background: '#16a34a', color:'white', margin:0}} onClick={() => openReviewModal(booking.id)}>✅ Yes, Rate Them</button>
+                                                <button className="action-btn" style={{flex: 1, background: '#ef4444', color:'white', margin:0}} onClick={() => setIssueBookingId(booking.id)}>❌ No, I need help</button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            {booking.status === 'completed' && booking.rating && <div className="rated-badge">You Rated: {'★'.repeat(booking.rating)}</div>}
+                            {booking.status === 'rejected' && <div className="rejection-box"><strong className="ani-prohibited">🚫</strong> <strong>Declined:</strong> {booking.rejection_reason || "Provider busy."}</div>}
+                            {booking.status === 'cancelled' && booking.rejection_reason && <div className="rejection-box" style={{background: 'var(--bg-body)', borderColor: 'var(--border-color)', color: 'var(--text-sub)'}}>ℹ️ {booking.rejection_reason}</div>}
+                        </div>
                     </div>
-                    <div className="booking-body">
-                        <div className="booking-row"><span className="ani-calendar">🗓️</span> <span>{formatDate(booking.created_at)}</span></div>
-                        {booking.status === 'pending' && <div className="booking-row text-orange"><span className="ani-hourglass">⏳</span> <span>Waiting for acceptance...</span></div>}
-                    </div>
-                    <div className="booking-footer">
-                        {(booking.status === 'accepted' || booking.status === 'in_progress') && (
-                            <div className="pin-container"><span className="pin-label">Start PIN:</span><span className="pin-value">{booking.start_code}</span></div>
-                        )}
-                        {/* 🔥 3D Buttons in Booking Card */}
-                        {booking.status === 'pending' && <button className="action-btn btn-cancel-ui" onClick={() => handleCancelBooking(booking.id)}>Cancel Request</button>}
-                        {booking.status === 'completed' && !booking.rating && <button className="action-btn btn-rate-ui" onClick={() => openReviewModal(booking.id)}>Rate Service</button>}
-                        {booking.status === 'completed' && booking.rating && <div className="rated-badge">You Rated: {'★'.repeat(booking.rating)}</div>}
-                        {booking.status === 'rejected' && <div className="rejection-box"><strong className="ani-prohibited">🚫</strong> <strong>Declined:</strong> {booking.rejection_reason || "Provider busy."}</div>}
-                    </div>
-                </div>
-            ))
+                )
+            })
         )}
     </div>
   )
@@ -723,234 +871,51 @@ export default function CustomerHome() {
         .app-container { min-height: 100vh; background-color: var(--bg-body); }
         
         /* 🔥 NEW SVG ANIMATION STYLES 🔥 */
-        .info-svg {
-            width: 18px; height: 18px; 
-            fill: none; stroke: currentColor; 
-            stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-            margin-right: 8px; flex-shrink: 0; color: #3b82f6;
-        }
-        
-        .svg-phone path {
-            stroke-dasharray: 8;
-            animation: dashMove 1s linear infinite;
-        }
-        @keyframes dashMove {
-            to { stroke-dashoffset: -16; }
-        }
-
-        .svg-mail {
-            animation: floatMail 2s ease-in-out infinite;
-        }
-        @keyframes floatMail {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-3px); }
-        }
-
-        .svg-clock .hands {
-            transform-origin: 12px 12px;
-            animation: spinClock 2s linear infinite;
-        }
-        @keyframes spinClock {
-            to { transform: rotate(360deg); }
-        }
+        .info-svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; margin-right: 8px; flex-shrink: 0; color: #3b82f6; }
+        .svg-phone path { stroke-dasharray: 8; animation: dashMove 1s linear infinite; }
+        @keyframes dashMove { to { stroke-dashoffset: -16; } }
+        .svg-mail { animation: floatMail 2s ease-in-out infinite; }
+        @keyframes floatMail { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+        .svg-clock .hands { transform-origin: 12px 12px; animation: spinClock 2s linear infinite; }
+        @keyframes spinClock { to { transform: rotate(360deg); } }
 
         /* 🔥 SWIGGY HEADER STYLES 🔥 */
-        .swiggy-header {
-            position: sticky;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: var(--bg-card);
-            padding: 12px 16px;
-            z-index: 2000;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            border-bottom: 1px solid var(--border-color);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
-            transition: all 0.3s ease;
-        }
-        .loc-icon-box {
-            font-size: 24px;
-            color: #e11d48;
-            animation: bounce 2s infinite;
-        }
-        .loc-info {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            cursor: pointer;
-        }
-        .loc-label {
-            font-size: 10px;
-            font-weight: 800;
-            color: #e11d48;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        
-        /* 🔥 MARQUEE SCROLLING CSS FOR LOCATION 🔥 */
-        .loc-value-wrapper {
-            width: 150px; 
-            overflow: hidden;
-            white-space: nowrap;
-            mask-image: linear-gradient(to right, black 85%, transparent 100%);
-            -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
-            display: flex;
-            align-items: center;
-        }
-        .scroll-text {
-            display: inline-block;
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-main);
-            animation: scrollText 5s linear infinite alternate;
-            padding-right: 10px;
-        }
-        @keyframes scrollText {
-            0%, 20% { transform: translateX(0); }
-            80%, 100% { transform: translateX(min(0px, calc(150px - 100%))); }
-        }
-
-        .arrow-down {
-            font-size: 10px;
-            color: var(--text-sub);
-            transition: transform 0.2s;
-            margin-left: 4px;
-        }
-        .loc-info:active .arrow-down {
-            transform: rotate(180deg);
-        }
-        .profile-icon-header {
-            width: 38px;
-            height: 38px;
-            border-radius: 50%;
-            overflow: hidden;
-            border: 2px solid #e2e8f0;
-            background: #f1f5f9;
-            flex-shrink: 0;
-            cursor: pointer;
-        }
+        .swiggy-header { position: sticky; top: 0; left: 0; width: 100%; background: var(--bg-card); padding: 12px 16px; z-index: 2000; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.04); transition: all 0.3s ease; }
+        .loc-icon-box { font-size: 24px; color: #e11d48; animation: bounce 2s infinite; }
+        .loc-info { flex: 1; display: flex; flex-direction: column; cursor: pointer; }
+        .loc-label { font-size: 10px; font-weight: 800; color: #e11d48; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 4px; }
+        .loc-value-wrapper { width: 150px; overflow: hidden; white-space: nowrap; mask-image: linear-gradient(to right, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%); display: flex; align-items: center; }
+        .scroll-text { display: inline-block; font-size: 14px; font-weight: 700; color: var(--text-main); animation: scrollText 5s linear infinite alternate; padding-right: 10px; }
+        @keyframes scrollText { 0%, 20% { transform: translateX(0); } 80%, 100% { transform: translateX(min(0px, calc(150px - 100%))); } }
+        .arrow-down { font-size: 10px; color: var(--text-sub); transition: transform 0.2s; margin-left: 4px; }
+        .loc-info:active .arrow-down { transform: rotate(180deg); }
+        .profile-icon-header { width: 38px; height: 38px; border-radius: 50%; overflow: hidden; border: 2px solid #e2e8f0; background: #f1f5f9; flex-shrink: 0; cursor: pointer; }
 
         /* 🔥 GLOBAL 3D BUTTON STYLES 🔥 */
-        button, .btn, .view-btn, .action-btn, .location-btn {
-            border-radius: 50px !important; /* ROUND */
-            transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            transform: translateY(0);
-            box-shadow: 0 4px 0 rgba(0,0,0,0.2); /* 3D Depth */
-            font-weight: 700 !important;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border: none;
-            cursor: pointer;
-        }
-        button:active, .btn:active, .view-btn:active, .action-btn:active, .location-btn:active {
-            transform: translateY(4px) !important; /* PRESS EFFECT */
-            box-shadow: 0 0 0 rgba(0,0,0,0) !important;
-        }
-
-        /* Specific Colors */
+        button, .btn, .view-btn, .action-btn, .location-btn { border-radius: 50px !important; transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1); position: relative; transform: translateY(0); box-shadow: 0 4px 0 rgba(0,0,0,0.2); font-weight: 700 !important; text-transform: uppercase; letter-spacing: 0.5px; border: none; cursor: pointer; }
+        button:active, .btn:active, .view-btn:active, .action-btn:active, .location-btn:active { transform: translateY(4px) !important; box-shadow: 0 0 0 rgba(0,0,0,0) !important; }
         .btn { background: #3b82f6; box-shadow: 0 4px 0 #1d4ed8; color: white; padding: 12px 30px; display: inline-block; text-decoration: none; }
         .view-btn { padding: 10px; width: 100%; margin-top: 15px; color: #3b82f6; background: #eff6ff; box-shadow: 0 4px 0 #bfdbfe; }
         .action-btn { padding: 12px; width: 100%; font-size: 0.9rem; }
         .btn-cancel-ui { background: #fee2e2; color: #991b1b; box-shadow: 0 4px 0 #fecaca; }
         .btn-rate-ui { background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%); color: white; box-shadow: 0 4px 0 #b45309; }
-        .location-btn { background: #f59e0b; color: white; padding: 10px; width: 100%; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 5px; box-shadow: 0 4px 0 #d97706; }
+        .location-btn { background: #f59e0b; color: white; padding: 10px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 5px; box-shadow: 0 4px 0 #d97706; }
         .location-btn.detected { background: #10b981; box-shadow: 0 4px 0 #047857; }
         
-        /* 🔥 UPGRADED CARD HOVER GRID 🔥 */
-        .service-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
-            gap: 40px; 
-            padding: 40px 20px; 
-            max-width: 1200px; 
-            margin: 0 auto; 
-        }
-
-        .card-wrapper { 
-            position: relative; 
-            height: 420px; /* Fixed anchor height */
-            z-index: 1;
-        }
-        
-        .service-card { 
-            position: absolute; 
-            top: 0; left: 0; 
-            width: 100%; height: 420px; /* Sits completely in wrapper initially */
-            background: var(--bg-card); 
-            border-radius: 20px; 
-            box-shadow: 0 10px 30px var(--shadow-color); 
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
-            overflow: hidden; 
-            display: flex; flex-direction: column; 
-            border: 1px solid var(--border-color); 
-            z-index: 10;
-        }
-        
-        /* 🔥 ONLY HOVER IF THERE ARE EXTRA IMAGES 🔥 */
-        .service-card.has-gallery:hover, .service-card.expanded.has-gallery { 
-            height: auto; 
-            min-height: 420px;
-            transform: scale(1.05); 
-            z-index: 100;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.2); 
-        }
-
+        .service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 40px; padding: 40px 20px; max-width: 1200px; margin: 0 auto; }
+        .card-wrapper { position: relative; height: 420px; z-index: 1; }
+        .service-card { position: absolute; top: 0; left: 0; width: 100%; height: 420px; background: var(--bg-card); border-radius: 20px; box-shadow: 0 10px 30px var(--shadow-color); transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--border-color); z-index: 10; }
+        .service-card.has-gallery:hover, .service-card.expanded.has-gallery { height: auto; min-height: 420px; transform: scale(1.05); z-index: 100; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
         .card-main { flex: 1; display: flex; flex-direction: column; height: 100%; }
-        
-        .cover-img { 
-            height: 200px; min-height: 200px; 
-            width: 100%; 
-            background: #f1f5f9; 
-            display: flex; align-items: center; justify-content: center; 
-            overflow: hidden; position: relative; cursor: pointer;
-        }
-        
+        .cover-img { height: 200px; min-height: 200px; width: 100%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; cursor: pointer; }
         .cover-img img { width: 100%; height: 100%; object-fit: cover; }
-        
-        .zoom-hint {
-            position: absolute;
-            bottom: 25px; right: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            font-size: 10px;
-            padding: 4px 10px;
-            border-radius: 20px;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
+        .zoom-hint { position: absolute; bottom: 25px; right: 10px; background: rgba(0,0,0,0.7); color: white; font-size: 10px; padding: 4px 10px; border-radius: 20px; pointer-events: none; opacity: 0; transition: opacity 0.3s ease; }
         .service-card:hover .zoom-hint { opacity: 1; }
-
         .card-content { padding: 20px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; color: var(--text-main); }
         .card-content h3 { margin: 0 0 10px 0; font-size: 1.2rem; color: var(--text-main); }
         .card-content p { font-size: 0.9rem; color: var(--text-sub); margin: 0; }
-        
-        /* 🔥 "BOOK PAGE FLIP" EFFECT FOR GALLERY 🔥 */
-        .card-gallery { 
-            display: flex; gap: 10px; 
-            padding: 0 20px; 
-            max-height: 0; 
-            opacity: 0; 
-            overflow-x: auto; 
-            flex-wrap: nowrap;
-            transform-origin: top center; /* Hinge at the top */
-            transform: rotateX(-90deg); /* Folded up inside */
-            transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        
-        .service-card.has-gallery:hover .card-gallery, .service-card.expanded.has-gallery .card-gallery { 
-            max-height: 100px; 
-            opacity: 1; 
-            padding-bottom: 20px; 
-            transform: rotateX(0deg); /* Flips open like a notepad page */
-        }
-        
+        .card-gallery { display: flex; gap: 10px; padding: 0 20px; max-height: 0; opacity: 0; overflow-x: auto; flex-wrap: nowrap; transform-origin: top center; transform: rotateX(-90deg); transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .service-card.has-gallery:hover .card-gallery, .service-card.expanded.has-gallery .card-gallery { max-height: 100px; opacity: 1; padding-bottom: 20px; transform: rotateX(0deg); }
         .card-gallery img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; flex-shrink: 0; border: 1px solid var(--border-color); cursor: zoom-in; }
         
         .search-container { margin: 0 auto; max-width: 600px; position: relative; }
@@ -962,7 +927,6 @@ export default function CustomerHome() {
         .star-rating.active:hover { color: #d97706; }
         .star-rating:hover { color: #fbbf24; }
         
-        /* 🔥 QUICK WORDS CSS 🔥 */
         .quick-words-container { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; justify-content: center; }
         .quick-word-chip { background: var(--bg-body); border: 1px solid var(--border-color); color: var(--text-main); padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; font-weight: 600; }
         .quick-word-chip:hover { background: #eff6ff; border-color: #3b82f6; color: #2563eb; }
@@ -992,12 +956,18 @@ export default function CustomerHome() {
         .text-orange { color: #d97706; font-weight: 500; }
         .booking-footer { display: flex; flex-direction: column; gap: 10px; }
         
-        .pin-container { background: var(--bg-body); border: 2px dashed var(--border-color); padding: 10px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .pin-container { background: var(--bg-body); border: 2px dashed var(--border-color); padding: 10px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .pin-label { font-size: 0.8rem; color: var(--text-sub); font-weight: 600; }
         .pin-value { font-size: 1.2rem; font-weight: 800; color: var(--text-main); letter-spacing: 2px; }
         .rated-badge { text-align: center; color: #d97706; font-weight: 600; background: #fffbeb; padding: 8px; border-radius: 8px; }
         .rejection-box { background: #fef2f2; color: #991b1b; padding: 10px; border-radius: 8px; font-size: 0.85rem; border: 1px solid #fecaca; }
         
+        /* 🔥 LEAFLET MAP TRANSITIONS & ANIMATIONS 🔥 */
+        .leaflet-marker-icon { transition: transform 1.5s linear !important; }
+        @keyframes bounceBike { 0% { transform: translateY(0); } 50% { transform: translateY(-5px); } 100% { transform: translateY(0); } }
+        .bike-pulse { animation: bounceBike 0.8s ease-in-out infinite; }
+        @keyframes pinDrop { 0% { transform: translateY(-20px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+
         .modal-tabs { display: flex; background: var(--bg-body); padding: 4px; border-radius: 12px; margin-bottom: 20px; }
         .tab-item { flex: 1; text-align: center; padding: 10px; border-radius: 10px; font-size: 0.9rem; font-weight: 600; color: var(--text-sub); cursor: pointer; transition: all 0.2s ease; }
         .tab-item.active { background: var(--bg-card); color: var(--text-main); shadow: 0 2px 5px rgba(0,0,0,0.05); }
@@ -1031,46 +1001,12 @@ export default function CustomerHome() {
         .google-avatar { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3); }
         .saved-addr-card { background: var(--bg-body); border: 1px solid var(--border-color); padding: 12px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; color: var(--text-main); }
         
-        /* --- NAVBAR DESKTOP FIX --- */
-        nav ul {
-            list-style: none; 
-            display: flex; 
-            gap: 20px; 
-            align-items: center;
-            background: var(--bg-card); /* ADAPTIVE BG */
-            padding: 10px 25px;
-            border-radius: 50px;
-            border: 1px solid var(--border-color);
-            box-shadow: 0 4px 20px var(--shadow-color);
-        }
-        nav a { 
-            text-decoration: none; 
-            color: var(--text-main); 
-            font-weight: 500; 
-            display: flex; 
-            align-items: center; 
-            gap: 5px; 
-            cursor: pointer; 
-        }
+        nav ul { list-style: none; display: flex; gap: 20px; align-items: center; background: var(--bg-card); padding: 10px 25px; border-radius: 50px; border: 1px solid var(--border-color); box-shadow: 0 4px 20px var(--shadow-color); }
+        nav a { text-decoration: none; color: var(--text-main); font-weight: 500; display: flex; align-items: center; gap: 5px; cursor: pointer; }
 
-        /* 🔥 MODAL "BOOK PAGE OPEN" ANIMATION 🔥 */
-        .modal-overlay { 
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-            background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); 
-            z-index: 10000; display: flex; justify-content: center; align-items: center; padding: 20px; 
-            perspective: 1500px; /* Required for 3D flip */
-        }
-        .modal-content { 
-            background: var(--bg-card); width: 100%; max-width: 500px; border-radius: 16px; padding: 25px; 
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; position:relative; 
-            color: var(--text-main); 
-            transform-origin: left center; /* Hinge is on the left side */
-            animation: bookPageTurn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; 
-        }
-        @keyframes bookPageTurn { 
-            from { transform: rotateY(-90deg) scale(0.9); opacity: 0; } 
-            to { transform: rotateY(0deg) scale(1); opacity: 1; } 
-        }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); z-index: 10000; display: flex; justify-content: center; align-items: center; padding: 20px; perspective: 1500px; }
+        .modal-content { background: var(--bg-card); width: 100%; max-width: 500px; border-radius: 16px; padding: 25px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; position:relative; color: var(--text-main); transform-origin: left center; animation: bookPageTurn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+        @keyframes bookPageTurn { from { transform: rotateY(-90deg) scale(0.9); opacity: 0; } to { transform: rotateY(0deg) scale(1); opacity: 1; } }
         
         .image-zoom-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 99999; display: flex; justify-content: center; align-items: center; cursor: pointer; }
         .zoomed-img { max-width: 90%; max-height: 90vh; border-radius: 8px; }
@@ -1088,187 +1024,51 @@ export default function CustomerHome() {
         .form-input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 15px; outline: none; background: var(--input-bg); color: var(--text-main); }
         .form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
         
-        /* NO SERVICES PLACEHOLDER */
         .no-services { text-align: center; padding: 60px 20px; grid-column: 1 / -1; }
         .no-services h3 { font-size: 1.5rem; color: var(--text-main); margin-bottom: 10px; }
         .no-services p { color: var(--text-sub); font-size: 1rem; max-width: 400px; margin: 0 auto; }
         
         @media(max-width: 768px) { 
             .service-grid { grid-template-columns: 1fr; padding: 20px; } 
-            /* Fix mobile hover reset */
             .service-card.has-gallery:hover, .service-card.expanded.has-gallery { height: auto; transform: none; box-shadow: 0 10px 30px var(--shadow-color); z-index: 10; }
         }
 
-        /* ========================================= */
-        /* 🔥 NEW ANIMATION CLASSES 🔥 */
-        /* ========================================= */
-        
         .emoji { display: inline-block; }
-
-        /* 🔴 Red Circle: Warning Pulse */
         .ani-warning { animation: warningPulse 1s infinite; display: inline-block; }
-        @keyframes warningPulse {
-            0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 0, 0, 0)); }
-            50% { transform: scale(1.2); filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.8)); }
-            100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 0, 0, 0)); }
-        }
-
-        /* 📭 Mailbox: Checking/Sway */
+        @keyframes warningPulse { 0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 0, 0, 0)); } 50% { transform: scale(1.2); filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.8)); } 100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 0, 0, 0)); } }
         .ani-mailbox { animation: sway 2s ease-in-out infinite; transform-origin: bottom center; display: inline-block; }
-        @keyframes sway {
-            0%, 100% { transform: rotate(0deg); }
-            25% { transform: rotate(-10deg); }
-            75% { transform: rotate(10deg); }
-        }
-
-        /* 🏃 Runner: Sprinting Animation */
-        .ani-run { 
-            animation: sprint 0.6s infinite alternate ease-in-out; 
-            display: inline-block; 
-        }
-
-        @keyframes sprint {
-            from { 
-                transform: translateY(0) skewX(0deg); 
-            }
-            to { 
-                transform: translateY(-3px) skewX(-15deg); /* Hop up & Lean forward (Speed) */
-            }
-        }
-
-        /* 📡 Satellite: Transmitting Waves */
+        @keyframes sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-10deg); } 75% { transform: rotate(10deg); } }
+        .ani-run { animation: sprint 0.6s infinite alternate ease-in-out; display: inline-block; }
+        @keyframes sprint { from { transform: translateY(0) skewX(0deg); } to { transform: translateY(-3px) skewX(-15deg); } }
         .ani-satellite { animation: float 3s ease-in-out infinite; display: inline-block; }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        /* 🚫 Prohibited: Shake No */
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
         .ani-prohibited { animation: shakeNo 0.5s ease-in-out infinite; display: inline-block; }
-        @keyframes shakeNo {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-5px); }
-            75% { transform: translateX(5px); }
-        }
-
-        /* 📍 Location: Finding Place (Jump and Land) */
+        @keyframes shakeNo { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
         .ani-location { animation: pinDrop 1.5s ease-out infinite; transform-origin: bottom center; display: inline-block; }
-        @keyframes pinDrop {
-            0% { transform: translateY(-20px) scaleY(1); opacity: 0.5; }
-            50% { transform: translateY(0) scaleY(1); opacity: 1; }
-            60% { transform: translateY(0) scaleY(0.8); }
-            100% { transform: translateY(0) scaleY(1); }
-        }
-
-        /* ❌ Cross: Pop In/Out */
         .ani-cross { animation: pulseBig 1.5s infinite; display: inline-block; }
-        @keyframes pulseBig {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.3); opacity: 0.8; }
-            100% { transform: scale(1); }
-        }
-
-        /* 🚀 Rocket: Launching/Vibrating */
+        @keyframes pulseBig { 0% { transform: scale(1); } 50% { transform: scale(1.3); opacity: 0.8; } 100% { transform: scale(1); } }
         .ani-rocket { animation: launch 0.2s infinite; display: inline-block; }
-        @keyframes launch {
-            0% { transform: translate(1px, 1px) rotate(0deg); }
-            25% { transform: translate(-1px, -2px) rotate(-1deg); }
-            50% { transform: translate(-2px, 0px) rotate(1deg); }
-            75% { transform: translate(2px, 1px) rotate(0deg); }
-            100% { transform: translate(1px, -1px) rotate(0deg); }
-        }
-
-        /* 🎉 Party: Celebrate */
+        @keyframes launch { 0% { transform: translate(1px, 1px) rotate(0deg); } 25% { transform: translate(-1px, -2px) rotate(-1deg); } 50% { transform: translate(-2px, 0px) rotate(1deg); } 75% { transform: translate(2px, 1px) rotate(0deg); } 100% { transform: translate(1px, -1px) rotate(0deg); } }
         .ani-party { animation: tada 1.2s ease-in-out infinite; display: inline-block; }
-        @keyframes tada {
-            0% { transform: scale(1); }
-            10%, 20% { transform: scale(0.9) rotate(-3deg); }
-            30%, 50%, 70%, 90% { transform: scale(1.1) rotate(3deg); }
-            40%, 60%, 80% { transform: scale(1.1) rotate(-3deg); }
-            100% { transform: scale(1) rotate(0); }
-        }
-
-        /* 🔨 Hammer: Thudding/Hitting */
+        @keyframes tada { 0% { transform: scale(1); } 10%, 20% { transform: scale(0.9) rotate(-3deg); } 30%, 50%, 70%, 90% { transform: scale(1.1) rotate(3deg); } 40%, 60%, 80% { transform: scale(1.1) rotate(-3deg); } 100% { transform: scale(1) rotate(0); } }
         .ani-hammer { animation: hammerHit 1.5s infinite; transform-origin: bottom right; display: inline-block; }
-        @keyframes hammerHit {
-            0% { transform: rotate(0deg); }
-            30% { transform: rotate(45deg); }
-            50% { transform: rotate(-45deg); }
-            60% { transform: rotate(-45deg) scale(1.1); }
-            100% { transform: rotate(0deg); }
-        }
-
-        /* ⏳ Hourglass: Flipping */
+        @keyframes hammerHit { 0% { transform: rotate(0deg); } 30% { transform: rotate(45deg); } 50% { transform: rotate(-45deg); } 60% { transform: rotate(-45deg) scale(1.1); } 100% { transform: rotate(0deg); } }
         .ani-hourglass { animation: flip 3s infinite; display: inline-block; }
-        @keyframes flip {
-            0% { transform: rotate(0); }
-            40% { transform: rotate(180deg); }
-            100% { transform: rotate(180deg); }
-        }
-
-        /* ✖ Multiply: Spin */
+        @keyframes flip { 0% { transform: rotate(0); } 40% { transform: rotate(180deg); } 100% { transform: rotate(180deg); } }
         .ani-multiply { animation: spin 2s linear infinite; display: inline-block; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        /* 📅 Calendar: Page Flip/Wobble */
         .ani-calendar { animation: wobble 2s infinite; display: inline-block; }
-        @keyframes wobble {
-            0% { transform: perspective(400px) rotateY(0); }
-            50% { transform: perspective(400px) rotateY(20deg); }
-            100% { transform: perspective(400px) rotateY(0); }
-        }
-
-        /* 🗑️ Trash: Bin Toss */
+        @keyframes wobble { 0% { transform: perspective(400px) rotateY(0); } 50% { transform: perspective(400px) rotateY(20deg); } 100% { transform: perspective(400px) rotateY(0); } }
         .ani-trash { animation: trashToss 1.5s infinite; display: inline-block; }
-        @keyframes trashToss {
-            0% { transform: rotate(0); }
-            25% { transform: rotate(15deg); }
-            50% { transform: rotate(-15deg); }
-            100% { transform: rotate(0); }
-        }
-
-        /* ⭐ Star: Shining/Twinkle */
+        @keyframes trashToss { 0% { transform: rotate(0); } 25% { transform: rotate(15deg); } 50% { transform: rotate(-15deg); } 100% { transform: rotate(0); } }
         .ani-star { animation: twinkle 1.5s infinite alternate; display: inline-block; }
-        @keyframes twinkle {
-            0% { transform: scale(1); opacity: 0.5; filter: grayscale(100%); }
-            100% { transform: scale(1.3) rotate(10deg); opacity: 1; filter: drop-shadow(0 0 10px gold); }
-        }
-        
-        /* 🤝 Handshake: Firm Shake Animation */
-        .ani-handshake { 
-            animation: firmShake 2s ease-in-out infinite; 
-            display: inline-block; 
-        }
-        @keyframes firmShake {
-            0% { transform: translateY(0) rotate(0); }
-            10% { transform: translateY(2px) rotate(-5deg); } /* Down & tilt */
-            20% { transform: translateY(-2px) rotate(5deg); }  /* Up & tilt */
-            30% { transform: translateY(2px) rotate(-5deg); } 
-            40% { transform: translateY(-2px) rotate(5deg); } 
-            50% { transform: translateY(0) rotate(0); }        /* Stop shaking */
-            100% { transform: translateY(0) rotate(0); }       /* Rest */
-        }
-
-        /* 🚪 Door: "Guy Going Out" (Slide Exit Motion) */
-        .ani-door { 
-            animation: doorExit 2s ease-in-out infinite; 
-            display: inline-block; 
-        }
-        @keyframes doorExit {
-            0% { transform: translateX(0) scale(1); opacity: 1; }
-            30% { transform: translateX(-3px) scale(0.95); } /* Pull back slightly */
-            60% { transform: translateX(10px) scale(1.1); opacity: 0; } /* Run out to the right */
-            61% { transform: translateX(-10px) scale(0.8); opacity: 0; } /* Reset position invisible */
-            100% { transform: translateX(0) scale(1); opacity: 1; } /* Reappear */
-        }
-
-        /* ⬅️ Arrow: Pointing Left */
+        @keyframes twinkle { 0% { transform: scale(1); opacity: 0.5; filter: grayscale(100%); } 100% { transform: scale(1.3) rotate(10deg); opacity: 1; filter: drop-shadow(0 0 10px gold); } }
+        .ani-handshake { animation: firmShake 2s ease-in-out infinite; display: inline-block; }
+        @keyframes firmShake { 0% { transform: translateY(0) rotate(0); } 10% { transform: translateY(2px) rotate(-5deg); } 20% { transform: translateY(-2px) rotate(5deg); } 30% { transform: translateY(2px) rotate(-5deg); } 40% { transform: translateY(-2px) rotate(5deg); } 50% { transform: translateY(0) rotate(0); } 100% { transform: translateY(0) rotate(0); } }
+        .ani-door { animation: doorExit 2s ease-in-out infinite; display: inline-block; }
+        @keyframes doorExit { 0% { transform: translateX(0) scale(1); opacity: 1; } 30% { transform: translateX(-3px) scale(0.95); } 60% { transform: translateX(10px) scale(1.1); opacity: 0; } 61% { transform: translateX(-10px) scale(0.8); opacity: 0; } 100% { transform: translateX(0) scale(1); opacity: 1; } }
         .ani-arrow { animation: pointLeft 1s infinite; display: inline-block; }
-        @keyframes pointLeft {
-            0% { transform: translateX(0); }
-            50% { transform: translateX(-10px); }
-            100% { transform: translateX(0); }
-        }
+        @keyframes pointLeft { 0% { transform: translateX(0); } 50% { transform: translateX(-10px); } 100% { transform: translateX(0); } }
       `}</style>
       
       {toast.show && (
@@ -1277,10 +1077,44 @@ export default function CustomerHome() {
         </div>
       )}
 
+      {/* 🔴 CUSTOMER CANCEL MODAL UI */}
+      {showCancelModal && (
+        <div className="modal-overlay">
+            <div className="modal-content">
+                <h3 style={{marginTop:0, borderBottom:'1px solid #ef4444', paddingBottom:'10px', color: '#ef4444'}}>Cancel Booking</h3>
+                <p style={{fontSize:'0.9rem', color:'var(--text-sub)'}}>Please tell us why you are cancelling:</p>
+                <div style={{margin:'20px 0'}}>
+                    {['Changed my mind', 'Found someone else', 'Rescheduling', 'Other'].map(reason => (
+                        <div key={reason} className={`reason-option ${cancelReasonType === reason ? 'selected' : ''}`} 
+                             onClick={() => setCancelReasonType(reason)}
+                             style={{
+                                display: 'block', padding: '12px', background: cancelReasonType === reason ? '#fee2e2' : 'var(--bg-body)', 
+                                color: cancelReasonType === reason ? '#991b1b' : 'var(--text-main)',
+                                border: `1px solid ${cancelReasonType === reason ? '#ef4444' : 'var(--border-color)'}`, 
+                                borderRadius: '8px', marginBottom: '8px', cursor: 'pointer', fontWeight: cancelReasonType === reason ? 'bold' : 'normal'
+                             }}>
+                            {reason}
+                        </div>
+                    ))}
+                    {cancelReasonType === 'Other' && (
+                        <textarea className="dash-textarea form-input" placeholder="Please type your reason here..." value={cancelCustomReason} onChange={(e) => setCancelCustomReason(e.target.value)} style={{marginTop:'10px', minHeight:'60px'}} />
+                    )}
+                </div>
+                <div style={{display:'flex', gap:'10px'}}>
+                    <button className="action-btn" style={{background:'#ef4444', color:'white'}} onClick={handleConfirmCancel} disabled={cancelLoading}>
+                        {cancelLoading ? "Cancelling..." : "Confirm Cancellation"}
+                    </button>
+                    <button className="action-btn" style={{background:'var(--bg-body)', color:'var(--text-main)', border: '1px solid var(--border-color)'}} onClick={() => setShowCancelModal(false)}>
+                        Go Back
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {isMobile ? (
         <div className="mobile-layout-container" style={{position:'fixed', top:0, left:0, width:'100%', height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'var(--bg-body)'}}>
             
-            {/* 🔥🔥🔥 SWIGGY HEADER ADDED HERE (STICKY TOP) 🔥🔥🔥 */}
             <div className="swiggy-header">
                 <div className="loc-icon-box">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color:'#e11d48'}}>
@@ -1602,7 +1436,6 @@ export default function CustomerHome() {
             </div>
             <p style={{marginBottom:'20px', lineHeight:'1.6', color:'var(--text-sub)'}}>{selectedService.description || "No specific description provided."}</p>
             
-            {/* 🔥 UPDATED: Emojis swapped out for Custom SVG Animations! */}
             <div style={{background:'var(--bg-body)', padding:'15px', borderRadius:'12px', marginBottom:'20px', border:'1px solid var(--border-color)'}}>
               <p style={{marginBottom:'8px', display:'flex', alignItems:'center'}}>
                 <svg className="info-svg svg-phone" viewBox="0 0 24 24">
@@ -1693,15 +1526,27 @@ export default function CustomerHome() {
                 <input type="datetime-local" className="form-input" required min={getMinDateTime()} max={getMaxDateTime()} value={formData.datetime} onChange={e => setFormData({...formData, datetime: e.target.value})} />
                 
                 <h4 style={{margin:'20px 0 10px', color:'var(--text-main)'}}>Service Address</h4>
-                <input type="text" className="form-input" placeholder="Building/House No" required value={formData.building} onChange={e => setFormData({...formData, building: e.target.value})} />
-                <input type="text" className="form-input" placeholder="Flat/Room No" required value={formData.room} onChange={e => setFormData({...formData, room: e.target.value})} />
-                
-                <input type="text" className="form-input" placeholder="Landmark / Area" required value={formData.landmark} onChange={e => setFormData({...formData, landmark: e.target.value})} />
                 
                 <button type="button" className={`location-btn ${formData.locationLat ? 'detected' : ''}`} onClick={handleGetLocation}>
-                    {formData.locationLat ? "✅ Location Captured" : "📍 Detect Location (GPS)"}
+                    {formData.locationLat ? "✅ Update Location (GPS)" : "📍 Detect Location (GPS)"}
                 </button>
 
+                {/* 🔥 NEW DRAGGABLE MAP FOR BOOKING 🔥 */}
+                {leafletLoaded && formData.locationLat && (
+                    <div style={{marginBottom: '20px'}}>
+                        <p style={{fontSize: '13px', color: 'var(--text-sub)', marginBottom: '5px'}}>📍 Drag the pin to adjust your exact location:</p>
+                        <LeafletBookingMap 
+                            lat={formData.locationLat} 
+                            lng={formData.locationLng} 
+                            onLocationChange={(lat, lng) => setFormData(prev => ({...prev, locationLat: lat, locationLng: lng}))} 
+                        />
+                    </div>
+                )}
+
+                <input type="text" className="form-input" placeholder="Building/House No" required value={formData.building} onChange={e => setFormData({...formData, building: e.target.value})} />
+                <input type="text" className="form-input" placeholder="Flat/Room No" required value={formData.room} onChange={e => setFormData({...formData, room: e.target.value})} />
+                <input type="text" className="form-input" placeholder="Landmark / Area" required value={formData.landmark} onChange={e => setFormData({...formData, landmark: e.target.value})} />
+                
                 <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px'}}>
                   <input type="checkbox" id="save-addr" checked={isSavingAddress} onChange={e => setIsSavingAddress(e.target.checked)} />
                   <label htmlFor="save-addr" style={{fontSize:'13px'}}>Save address for future use</label>
@@ -1725,6 +1570,10 @@ export default function CustomerHome() {
                         <span onClick={() => setIsAddingAddress(false)} style={{cursor:'pointer', color:'var(--text-main)'}}><span className="ani-arrow">⬅️</span></span> Add New Address
                     </h3>
                     
+                    <button type="button" className={`location-btn ${newAddrData.lat ? 'detected' : ''}`} onClick={handleGetLocationForNewAddr}>
+                        {newAddrData.lat ? "✅ Location Captured" : "📍 Detect Location (Required)"}
+                    </button>
+
                     <label className="form-label">Building / House Name</label>
                     <input type="text" className="form-input" value={newAddrData.building} onChange={e => setNewAddrData({...newAddrData, building: e.target.value})} placeholder="e.g. Sunshine Apts" />
                     
@@ -1734,10 +1583,6 @@ export default function CustomerHome() {
                     <label className="form-label">Landmark</label>
                     <input type="text" className="form-input" value={newAddrData.landmark} onChange={e => setNewAddrData({...newAddrData, landmark: e.target.value})} placeholder="e.g. Near Park" />
                     
-                    <button type="button" className={`location-btn ${newAddrData.lat ? 'detected' : ''}`} onClick={handleGetLocationForNewAddr}>
-                        {newAddrData.lat ? "✅ Location Captured" : "📍 Detect Location (Required)"}
-                    </button>
-
                     <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
                         <button className="btn" onClick={addNewAddressDirectly} style={{flex:1}}>Save Address</button>
                         <button className="btn" style={{flex:1, background:'#94a3b8'}} onClick={() => setIsAddingAddress(false)}>Cancel</button>

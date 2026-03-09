@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { useNavigate } from 'react-router-dom'
 
@@ -27,6 +27,9 @@ export default function ProviderDashboard() {
   const [bookings, setBookings] = useState([])
   const [pinInput, setPinInput] = useState({}) 
   
+  // 🚀 TRACKING STATE (Persists across reloads)
+  const [activeTrackings, setActiveTrackings] = useState(() => JSON.parse(localStorage.getItem('activeTrackings') || '{}'))
+
   // --- 🔴 REJECTION MODAL STATE ---
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [selectedBookingId, setSelectedBookingId] = useState(null)
@@ -38,7 +41,7 @@ export default function ProviderDashboard() {
   const [isClosed, setIsClosed] = useState(false)
   const [showCloseMenu, setShowCloseMenu] = useState(false)
   const [closeDuration, setCloseDuration] = useState('1 Hour')
-  const [customUntilDate, setCustomUntilDate] = useState('') // New DateTime State
+  const [customUntilDate, setCustomUntilDate] = useState('') 
   const [closeReason, setCloseReason] = useState('Emergency')
   const [otherReason, setOtherReason] = useState('')
   
@@ -48,16 +51,19 @@ export default function ProviderDashboard() {
   // --- NOTIFICATION STATE ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
 
+  // --- 📍 LOCATION TRACKING REFS ---
+  const watchIdRef = useRef(null)
+  const activeBookingsRef = useRef([])
+
   // --- SAFE DATE HELPER ---
   const safeFormatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
         const d = new Date(dateString);
-        return isNaN(d.getTime()) ? 'Invalid Date' : d.toLocaleString();
+        return isNaN(d.getTime()) ? 'Invalid Date' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     } catch (e) { return 'N/A'; }
   }
 
-  // --- DATETIME VALIDATION HELPERS ---
   const getMinDateTime = () => {
       const now = new Date();
       now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -77,7 +83,7 @@ export default function ProviderDashboard() {
 
       if (selectedDate > maxDate) {
           setShowDeleteSuggestion(true);
-          setCustomUntilDate(''); // Reset input
+          setCustomUntilDate(''); 
       } else {
           setCustomUntilDate(e.target.value);
       }
@@ -91,9 +97,15 @@ export default function ProviderDashboard() {
     .top-bar h1 { margin: 0; font-size: 1.5rem; color: #34d399; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
     .top-bar-actions { display: flex; gap: 15px; align-items: center; }
 
+    /* --- 📰 NEWS TICKER (MARQUEE) --- */
+    .ticker-wrap { width: 100%; background: rgba(0,0,0,0.5); border-bottom: 1px solid #059669; padding: 10px 0; overflow: hidden; white-space: nowrap; box-sizing: border-box; }
+    .ticker-move { display: inline-block; animation: ticker 20s linear infinite; padding-left: 100%; font-size: 0.95rem; color: #fde047; font-weight: 600; letter-spacing: 1px; }
+    .ticker-move:hover { animation-play-state: paused; cursor: default; }
+    @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+
     /* --- 3D TAB BUTTONS --- */
-    .nav-tabs { display: flex; gap: 20px; margin: 30px auto; justify-content: center; }
-    .tab-btn { background: rgba(6, 78, 59, 0.5); border: none; color: #34d399; padding: 12px 30px; cursor: pointer; border-radius: 12px; font-weight: 700; font-size: 1rem; transition: all 0.1s; box-shadow: 0 4px 0 #065f46; transform: translateY(0); }
+    .nav-tabs { display: flex; gap: 15px; margin: 25px auto; justify-content: center; flex-wrap: wrap; }
+    .tab-btn { background: rgba(6, 78, 59, 0.5); border: none; color: #34d399; padding: 12px 25px; cursor: pointer; border-radius: 12px; font-weight: 700; font-size: 1rem; transition: all 0.1s; box-shadow: 0 4px 0 #065f46; transform: translateY(0); }
     .tab-btn:hover { background: rgba(6, 78, 59, 0.8); transform: translateY(-2px); box-shadow: 0 6px 0 #065f46; }
     .tab-btn:active { transform: translateY(2px); box-shadow: 0 0 0 #065f46; }
     .tab-btn.active { background: #34d399; color: #022c22; box-shadow: 0 4px 0 #047857, 0 0 15px rgba(52, 211, 153, 0.4); transform: translateY(-2px); }
@@ -193,6 +205,10 @@ export default function ProviderDashboard() {
     .toast-error { background: #ef4444; }
     .toast-info { background: #3b82f6; }
     @keyframes slideDown { from { transform: translate(-50%, -20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+    
+    .live-dot { width: 10px; height: 10px; background-color: #ef4444; border-radius: 50%; display: inline-block; animation: pulseLive 1.5s infinite; }
+    @keyframes pulseLive { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
     @media (max-width: 768px) { .form-row { grid-template-columns: 1fr; } }
   `;
 
@@ -202,6 +218,43 @@ export default function ProviderDashboard() {
     return () => document.body.classList.remove('provider-body')
   }, [])
 
+  // --- 📍 CONTINUOUS LIVE LOCATION TRACKING ---
+  useEffect(() => {
+    activeBookingsRef.current = bookings.filter(b => 
+        (b.status === 'accepted' && activeTrackings[b.id]) || 
+        b.status === 'in_progress'
+    );
+    
+    if (activeBookingsRef.current.length > 0 && watchIdRef.current === null) {
+        if ("geolocation" in navigator) {
+            watchIdRef.current = navigator.geolocation.watchPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    activeBookingsRef.current.forEach(async (b) => {
+                        await supabase.from('bookings').update({
+                            provider_lat: latitude,
+                            provider_lng: longitude
+                        }).eq('id', b.id);
+                    });
+                },
+                (error) => console.error("Location tracking error:", error),
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+            );
+        }
+    } else if (activeBookingsRef.current.length === 0 && watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+    }
+  }, [bookings, activeTrackings]); 
+
+  useEffect(() => {
+      return () => {
+          if (watchIdRef.current !== null) {
+              navigator.geolocation.clearWatch(watchIdRef.current);
+          }
+      };
+  }, []);
+
   const sendNotification = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3500);
@@ -210,39 +263,27 @@ export default function ProviderDashboard() {
   // --- DATABASE SYNC LOGIC FOR CLOSING STORE ---
   const handleCloseStore = async () => {
     let finalDuration = closeDuration;
-    
     if (closeDuration === 'Custom Time') {
-        if (!customUntilDate) {
-            sendNotification("Please select a valid date and time.", "error");
-            return;
-        }
-        // Format the custom date so it looks nice on the dashboard (e.g., "Mar 15, 4:00 PM")
+        if (!customUntilDate) { sendNotification("Please select a valid date and time.", "error"); return; }
         const dateObj = new Date(customUntilDate);
         finalDuration = `Until ${dateObj.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}`;
     }
 
-    const { error } = await supabase.from('services').update({ is_available: false }).eq('provider_id', user.id);
-    
+    const { error } = await supabase.from('services').update({ is_available: false, close_reason: closeReason === 'Other' ? otherReason : closeReason }).eq('provider_id', user.id);
     if (!error) {
-        setIsClosed(true);
-        setShowCloseMenu(false);
+        setIsClosed(true); setShowCloseMenu(false);
         const finalReason = closeReason === 'Other' ? otherReason : closeReason;
         sendNotification(`Store closed ${finalDuration}. Reason: ${finalReason}`, 'info');
-        
-        // Update local state to reflect the formatted text
-        if (closeDuration === 'Custom Time') {
-             setCustomUntilDate(finalDuration); 
-        }
+        if (closeDuration === 'Custom Time') setCustomUntilDate(finalDuration); 
     } else {
-        sendNotification("Failed to close store. Ensure is_available column exists.", "error");
+        sendNotification("Failed to close store.", "error");
     }
   };
 
   const handleReopenStore = async () => {
-    const { error } = await supabase.from('services').update({ is_available: true }).eq('provider_id', user.id);
+    const { error } = await supabase.from('services').update({ is_available: true, close_reason: null }).eq('provider_id', user.id);
     if (!error) {
-        setIsClosed(false);
-        setCustomUntilDate(''); // clear out old custom date
+        setIsClosed(false); setCustomUntilDate(''); 
         sendNotification("Store is now Open!", "success");
     } else {
         sendNotification("Failed to open store.", "error");
@@ -257,7 +298,7 @@ export default function ProviderDashboard() {
         (payload) => {
             setTimeout(() => { fetchBookings(user.id); }, 500);
             if(payload.eventType === 'INSERT') { sendNotification("🔔 New Booking Request Received!", "info"); setActiveTab('inbox'); }
-            if(payload.eventType === 'UPDATE' && payload.new.status === 'cancelled') { sendNotification("❌ Booking Cancelled", "error"); }
+            if(payload.eventType === 'UPDATE' && payload.new.status === 'cancelled') { sendNotification("❌ Booking Cancelled by Customer", "error"); }
             if(payload.eventType === 'UPDATE' && payload.new.rating) { fetchBookings(user.id); sendNotification("⭐ New Review!", "success"); }
       }).subscribe();
     return () => { supabase.removeChannel(channel); }
@@ -270,7 +311,6 @@ export default function ProviderDashboard() {
 
   const fetchService = async (userId) => {
     const { data, error } = await supabase.from('services').select('*, service_images(*)').eq('provider_id', userId).maybeSingle()
-    
     if (data) { 
         setExistingService(data); setServiceType(data.service_type || 'Plumber'); 
         setCustomName(data.custom_service_name || ''); setDescription(data.description || ''); 
@@ -279,8 +319,7 @@ export default function ProviderDashboard() {
         setIsEditing(false);
         if (data.is_available === false) { setIsClosed(true); } else { setIsClosed(false); }
     } else { 
-        setExistingService(null);
-        setIsEditing(true) 
+        setExistingService(null); setIsEditing(true) 
     }
     setLoading(false)
   }
@@ -293,34 +332,64 @@ export default function ProviderDashboard() {
     } catch(e) { console.error(e) }
   }
 
-  // --- ACCEPT BOOKING (HIDES PROVIDER) ---
+  // --- 1. ACCEPT BOOKING ---
   const handleAcceptBooking = async (bookingId) => {
     const { error } = await supabase.from('bookings').update({ status: 'accepted' }).eq('id', bookingId)
     if(!error) { 
-        await supabase.from('services').update({ is_available: false }).eq('provider_id', user.id);
-        sendNotification("Booking Accepted! You are now hidden from new customers.", "success"); 
+        sendNotification("Booking Accepted! Moved to Upcoming tab.", "success"); 
+        setActiveTab('upcoming');
         fetchBookings(user.id); 
     } else {
         sendNotification("Error: " + error.message, "error");
     }
   }
 
-  // --- COMPLETE JOB (UNHIDES PROVIDER) ---
+  // --- 2. FORCE GPS FETCH & START JOURNEY ---
+  const handleStartJourney = async (bookingId) => {
+    sendNotification("Requesting GPS location to start journey...", "info");
+    
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude } = position.coords;
+                // Force an immediate Database update so the customer sees it instantly
+                await supabase.from('bookings').update({
+                    provider_lat: latitude,
+                    provider_lng: longitude
+                }).eq('id', bookingId);
+                
+                const newTrackings = { ...activeTrackings, [bookingId]: true };
+                setActiveTrackings(newTrackings);
+                localStorage.setItem('activeTrackings', JSON.stringify(newTrackings));
+                sendNotification("Journey Started! Live GPS active.", "success");
+            },
+            (error) => {
+                sendNotification("⚠️ Please allow Location/GPS access to start the journey!", "error");
+            },
+            { enableHighAccuracy: true }
+        );
+    } else {
+        sendNotification("GPS is not supported on this device.", "error");
+    }
+  }
+
+  // --- COMPLETE JOB ---
   const handleCompleteJob = async (bookingId) => {
     if(!confirm("Work done?")) return;
     const { error } = await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId)
     if(!error) { 
-        await supabase.from('services').update({ is_available: true }).eq('provider_id', user.id);
-        sendNotification("Job Completed! You are visible to customers again.", "success"); 
+        const newTrackings = { ...activeTrackings };
+        delete newTrackings[bookingId];
+        setActiveTrackings(newTrackings);
+        localStorage.setItem('activeTrackings', JSON.stringify(newTrackings));
+
+        sendNotification("Job Completed! Great work.", "success"); 
         fetchBookings(user.id); 
     }
   }
 
   const openRejectModal = (bookingId) => {
-    setSelectedBookingId(bookingId);
-    setRejectReasonType('Distance too far'); 
-    setRejectCustomReason('');
-    setShowRejectModal(true);
+    setSelectedBookingId(bookingId); setRejectReasonType('Distance too far'); setRejectCustomReason(''); setShowRejectModal(true);
   }
 
   const handleConfirmReject = async () => {
@@ -406,10 +475,23 @@ export default function ProviderDashboard() {
   
   const displayName = serviceType === 'Other' ? customName : serviceType
   const displayTiming = existingService?.timing || `${startTime} - ${endTime}`
+  
+  // --- SMART SORTING FOR TABS ---
   const safeBookings = bookings || [];
   const ratedBookings = safeBookings.filter(b => b.rating);
   const avgRating = ratedBookings.length > 0 ? (ratedBookings.reduce((sum, b) => sum + b.rating, 0) / ratedBookings.length).toFixed(1) : "New";
-  const pendingCount = safeBookings.filter(b => b.status === 'pending').length;
+  
+  // Upcoming Tab: Accepted & In Progress
+  const upcomingBookings = safeBookings.filter(b => ['accepted', 'in_progress'].includes(b.status));
+  // Inbox Tab: Pending, Completed, Cancelled, Rejected
+  const inboxBookings = safeBookings.filter(b => !['accepted', 'in_progress'].includes(b.status));
+  
+  const pendingCount = inboxBookings.filter(b => b.status === 'pending').length;
+
+  const displayBookings = activeTab === 'upcoming' ? upcomingBookings : inboxBookings;
+
+  // 🚨 NEW: CHECK IF PROVIDER IS BUSY TO DISABLE STORE CLOSING & EDITING 🚨
+  const isProviderEngaged = safeBookings.some(b => ['accepted', 'in_progress'].includes(b.status));
 
   return (
     <div>
@@ -449,26 +531,6 @@ export default function ProviderDashboard() {
         </div>
       )}
 
-      {/* 🛑 DELETE SUGGESTION MODAL UI */}
-      {showDeleteSuggestion && (
-        <div className="modal-overlay">
-            <div className="modal-content" style={{border: '1px solid #f59e0b'}}>
-                <h3 style={{marginTop:0, borderBottom:'1px solid #f59e0b', paddingBottom:'10px', color:'#fcd34d'}}>Taking a long break?</h3>
-                <p style={{fontSize:'0.9rem', color:'#d1fae5', lineHeight:'1.5'}}>
-                    You cannot pause your store for more than 1 month. If you are not planning to provide services for a while, we suggest deleting your service for now. You can easily create it again when you return!
-                </p>
-                <div style={{display:'flex', gap:'10px', marginTop: '20px'}}>
-                    <button className="action-btn delete" onClick={() => { setShowDeleteSuggestion(false); handleDelete(); }}>
-                        Delete Service
-                    </button>
-                    <button className="action-btn" style={{background:'#374151', color:'white', boxShadow:'0 5px 0 #1f2937'}} onClick={() => setShowDeleteSuggestion(false)}>
-                        Got it
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
-
       <div className="top-bar">
         <h1>Provider Dashboard</h1>
         <div className="top-bar-actions">
@@ -477,8 +539,23 @@ export default function ProviderDashboard() {
         </div>
       </div>
 
+      {/* 📰 NEWS TICKER FOR UPCOMING JOBS */}
+      {upcomingBookings.length > 0 && (
+          <div className="ticker-wrap">
+              <div className="ticker-move">
+                  {upcomingBookings.map(b => {
+                      const t = safeFormatDate(b.job_details?.time);
+                      return `🚀 Upcoming Job for ${b.job_details?.name || 'Customer'} on ${t}`;
+                  }).join('       ⭐       ')}
+              </div>
+          </div>
+      )}
+
       <div className="nav-tabs">
         <button className={`tab-btn ${activeTab === 'service' ? 'active' : ''}`} onClick={() => setActiveTab('service')}>🛠️ My Service</button>
+        <button className={`tab-btn ${activeTab === 'upcoming' ? 'active' : ''}`} onClick={() => setActiveTab('upcoming')}>
+            📅 Upcoming ({upcomingBookings.length})
+        </button>
         <button className={`tab-btn ${activeTab === 'inbox' ? 'active' : ''}`} onClick={() => setActiveTab('inbox')}>
             📬 Inbox ({pendingCount})
         </button>
@@ -544,7 +621,15 @@ export default function ProviderDashboard() {
             {existingService && !isEditing && (
                 <div className="card-panel" style={{borderColor: '#f59e0b'}}>
                     <h2 style={{color: '#fcd34d', margin: '0 0 15px 0'}}>🏪 Manage Status</h2>
-                    {!isClosed ? (
+                    
+                    {/* 🚨 PREVENT CLOSING IF ENGAGED 🚨 */}
+                    {isProviderEngaged ? (
+                        <div style={{background: 'rgba(245, 158, 11, 0.1)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.3)'}}>
+                            <p style={{color: '#fcd34d', fontSize: '15px', margin: 0, fontWeight: 'bold'}}>
+                                ⚠️ You cannot close your store right now because you have active or scheduled jobs. Please complete them first.
+                            </p>
+                        </div>
+                    ) : !isClosed ? (
                         !showCloseMenu ? (
                             <button className="action-btn map" onClick={() => setShowCloseMenu(true)}>⏸️ Temporarily Close Store</button>
                         ) : (
@@ -557,7 +642,6 @@ export default function ProviderDashboard() {
                                     <option>Custom Time</option>
                                 </select>
                                 
-                                {/* 📅 NATIVE UI DATETIME PICKER */}
                                 {closeDuration === 'Custom Time' && (
                                     <>
                                         <label style={{display: 'block', fontSize: '13px', color: '#a7f3d0', marginBottom: '5px'}}>Select End Date & Time:</label>
@@ -604,7 +688,14 @@ export default function ProviderDashboard() {
             <div className="card-panel">
                 <h2 style={{color:'white', marginTop:0, marginBottom:'20px'}}>⚙️ Service Settings</h2>
                 
-                {isEditing ? (
+                {/* 🚨 PREVENT EDITING/DELETING IF ENGAGED 🚨 */}
+                {isProviderEngaged ? (
+                    <div style={{background: 'rgba(245, 158, 11, 0.1)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.3)'}}>
+                        <p style={{color: '#fcd34d', fontSize: '15px', margin: 0, fontWeight: 'bold'}}>
+                            ⚠️ Profile Locked: You cannot edit or delete your service while you have active jobs. Please complete or cancel them first.
+                        </p>
+                    </div>
+                ) : isEditing ? (
                     <form onSubmit={handleSubmit} className="dash-form">
                     <h3 style={{color:'#34d399', margin: '0 0 10px 0'}}>{existingService ? 'Edit Details' : 'Create New Service'}</h3>
                     <div>
@@ -655,14 +746,14 @@ export default function ProviderDashboard() {
       ) : (
         <div className="inbox-container" style={{padding:'0 20px'}}>
              <div className="inbox-header-row">
-                <h2 style={{color:'white', margin:0}}>Booking Requests</h2>
+                <h2 style={{color:'white', margin:0}}>{activeTab === 'upcoming' ? 'Scheduled Jobs' : 'Inbox & Requests'}</h2>
                 <button className="refresh-btn" onClick={() => fetchBookings(user?.id)}>
                     <span className="refresh-icon">🔄</span> Refresh
                 </button>
              </div>
 
-             {safeBookings.length === 0 ? (<div style={{textAlign:'center', marginTop:'40px', color:'#9ca3af'}}>No bookings found.</div>) : (
-                 safeBookings.map(booking => {
+             {displayBookings.length === 0 ? (<div style={{textAlign:'center', marginTop:'40px', color:'#9ca3af'}}>No bookings found here.</div>) : (
+                 displayBookings.map(booking => {
                     const details = booking.job_details || {};
                     return (
                         <div key={booking.id} className="booking-card">
@@ -692,7 +783,7 @@ export default function ProviderDashboard() {
                                     </span>
                                 </div>
                                 
-                                {details.map_link && booking.status !== 'completed' && booking.status !== 'cancelled' && (
+                                {details.map_link && ['pending', 'accepted', 'in_progress'].includes(booking.status) && (
                                     <a href={details.map_link} target="_blank" rel="noreferrer" style={{textDecoration:'none', display:'block', marginTop:'5px'}}>
                                         <button className="action-btn map">📍 View Exact Location on Maps</button>
                                     </a>
@@ -715,35 +806,81 @@ export default function ProviderDashboard() {
                                     </div>
                                 </div>
                             )}
+                            
                             {booking.status === 'accepted' && (
                                 <div>
-                                    <p style={{color:'#fde047', marginBottom:'5px'}}>Request Accepted. Profile is hidden.</p>
-                                    <p style={{fontSize:'0.9rem', color:'#d1fae5'}}>Ask customer for PIN when you arrive.</p>
-                                    <div className="pin-input-group">
-                                        <input type="text" maxLength="4" className="pin-field" placeholder="PIN" onChange={(e) => setPinInput({...pinInput, [booking.id]: e.target.value})} />
-                                        <button className="action-btn edit" style={{width:'auto', marginBottom:0}} onClick={() => handleVerifyPin(booking.id, booking.start_code)}>Verify & Start</button>
-                                    </div>
+                                    <p style={{color:'#fde047', marginBottom:'5px', fontWeight: 'bold'}}>Request Accepted.</p>
+                                    
+                                    {!activeTrackings[booking.id] ? (
+                                        // 🚨 UPDATED LOGIC: UNLOCKS 2 HOURS BEFORE 🚨
+                                        (() => {
+                                            const jobTime = details.time ? new Date(details.time).getTime() : 0;
+                                            const now = new Date().getTime();
+                                            const diffHours = (jobTime - now) / (1000 * 60 * 60);
+                                            
+                                            if (diffHours > 2) {
+                                                return (
+                                                    <div style={{background: 'rgba(255, 255, 255, 0.1)', padding: '15px', borderRadius: '8px', marginTop: '10px', border: '1px solid rgba(255,255,255,0.2)'}}>
+                                                        <p style={{margin: 0, fontSize: '14px', color: '#d1fae5', lineHeight: '1.4'}}>
+                                                            ⏳ <strong>Scheduled for later.</strong> The "Start Journey" button will unlock <strong>2 hours</strong> before the start time.
+                                                        </p>
+                                                    </div>
+                                                );
+                                            } else {
+                                                return (
+                                                    <div style={{marginTop: '15px'}}>
+                                                        <button className="action-btn map" onClick={() => handleStartJourney(booking.id)}>
+                                                            🚀 Start Journey to Location
+                                                        </button>
+                                                        <p style={{fontSize: '12px', color: '#a7f3d0', marginTop: '8px', textAlign: 'center'}}>
+                                                            Clicking this will trigger GPS tracking.
+                                                        </p>
+                                                    </div>
+                                                );
+                                            }
+                                        })()
+                                    ) : (
+                                        // Journey Started State
+                                        <div>
+                                            <div style={{color: '#34d399', fontSize: '13px', margin: '8px 0', display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: '8px'}}>
+                                                <span className="live-dot"></span> Live GPS Tracking to Customer Active
+                                            </div>
+                                            <p style={{fontSize:'0.9rem', color:'#d1fae5'}}>Ask customer for PIN when you arrive.</p>
+                                            <div className="pin-input-group">
+                                                <input type="text" maxLength="4" className="pin-field" placeholder="PIN" onChange={(e) => setPinInput({...pinInput, [booking.id]: e.target.value})} />
+                                                <button className="action-btn edit" style={{width:'auto', marginBottom:0}} onClick={() => handleVerifyPin(booking.id, booking.start_code)}>Verify & Start</button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
+                            
                             {booking.status === 'in_progress' && (
                                 <div style={{background:'rgba(59, 130, 246, 0.2)', padding:'15px', borderRadius:'8px', marginTop:'10px', border:'1px solid #3b82f6'}}>
                                     <p style={{margin:0, fontWeight:'bold', color:'#93c5fd', fontSize:'18px'}}>⚠️ Work in Progress</p>
+                                    <div style={{color: '#34d399', fontSize: '12px', margin: '8px 0', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                        <span className="live-dot"></span> Location is still tracking
+                                    </div>
                                     <p style={{marginTop:'5px', color:'#bfdbfe'}}>Once the job is done, click the button below.</p>
                                     <button className="action-btn complete" onClick={() => handleCompleteJob(booking.id)}>
                                         ✅ Mark Job as Completed
                                     </button>
                                 </div>
                             )}
+                            
                             {booking.status === 'completed' && (
                                 <div style={{background:'rgba(16, 185, 129, 0.2)', padding:'10px', borderRadius:'8px', marginTop:'10px', textAlign:'center'}}>
                                     <p style={{margin:0, fontWeight:'bold', color:'#6ee7b7'}}>🎉 Job Completed Successfully</p>
                                 </div>
                             )}
+                            
                             {booking.status === 'cancelled' && (
                                 <div style={{background:'rgba(239, 68, 68, 0.2)', padding:'10px', borderRadius:'8px', marginTop:'10px', textAlign:'center'}}>
                                     <p style={{margin:0, fontWeight:'bold', color:'#fca5a5'}}>❌ Booking Cancelled by Customer</p>
+                                    {booking.rejection_reason && <p style={{margin:'5px 0 0 0', fontSize:'0.85rem', color:'#fca5a5'}}>{booking.rejection_reason}</p>}
                                 </div>
                             )}
+                            
                             {booking.status === 'rejected' && (
                                 <div style={{background:'rgba(55, 65, 81, 0.5)', padding:'10px', borderRadius:'8px', marginTop:'10px', textAlign:'center', border:'1px solid #4b5563'}}>
                                     <p style={{margin:0, fontWeight:'bold', color:'#d1d5db'}}>🚫 Request Declined</p>
